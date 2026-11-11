@@ -138,3 +138,4 @@ async def join_server_task(
                 await asyncio.sleep(delay)
 
     return results
+

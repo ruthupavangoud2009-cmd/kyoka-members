@@ -31,6 +31,12 @@ class GeneratorRunner:
         self.current_task: Optional[asyncio.Task] = None
         self._callback: Optional[Callable] = None
 
+        # 24/7 Auto-Generator state
+        self.autogen_enabled = False
+        self.autogen_task: Optional[asyncio.Task] = None
+        self.autogen_total_produced = 0
+        self.autogen_start_time: Optional[float] = None
+
     def get_stats(self) -> Dict[str, Any]:
         elapsed = time.time() - self.start_time if (self.is_running and self.start_time) else 0
         return {
@@ -41,7 +47,9 @@ class GeneratorRunner:
             "locked": self.locked,
             "invalid": self.invalid,
             "unverified": self.unverified,
-            "elapsed_seconds": int(elapsed)
+            "elapsed_seconds": int(elapsed),
+            "autogen_enabled": self.autogen_enabled,
+            "autogen_total_produced": self.autogen_total_produced
         }
 
     def _event_handler(self, event_type: str, data: dict):
@@ -54,7 +62,6 @@ class GeneratorRunner:
 
         if self._callback:
             try:
-                # If callback is a coroutine or normal func
                 res = self._callback(event_type, data)
                 if asyncio.iscoroutine(res):
                     asyncio.create_task(res)
@@ -97,7 +104,40 @@ class GeneratorRunner:
                 self.current_task.cancel()
             self.is_running = False
 
+    def start_autogen(self, batch_size: int = 1, cooldown_seconds: int = 25) -> bool:
+        """Start 24/7 continuous account generation in the background."""
+        if self.autogen_enabled:
+            return False
+        self.autogen_enabled = True
+        self.autogen_start_time = time.time()
+        self.autogen_task = asyncio.create_task(self._autogen_loop(batch_size, cooldown_seconds))
+        return True
+
+    def stop_autogen(self) -> bool:
+        """Stop 24/7 continuous account generation."""
+        if not self.autogen_enabled:
+            return False
+        self.autogen_enabled = False
+        if self.autogen_task and not self.autogen_task.done():
+            self.autogen_task.cancel()
+            self.autogen_task = None
+        self.stop()
+        return True
+
+    async def _autogen_loop(self, batch_size: int = 1, cooldown_seconds: int = 25):
+        print(f"[AutoGen 24/7] Loop initiated. Target batch: {batch_size}, Cooldown: {cooldown_seconds}s")
+        while self.autogen_enabled:
+            try:
+                if not self.is_running:
+                    res = await self.start(target=batch_size, threads=1)
+                    self.autogen_total_produced += res.get("total", 0)
+                await asyncio.sleep(cooldown_seconds)
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                print(f"[AutoGen 24/7] Error in loop: {e}")
+                await asyncio.sleep(cooldown_seconds)
+
 
 # Global singleton instance
 gen_runner = GeneratorRunner()
-

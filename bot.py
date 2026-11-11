@@ -117,6 +117,18 @@ class DashboardPanelView(discord.ui.View):
         await interaction.response.send_message("🔄 Starting Auto-Pipeline for 5 accounts...", ephemeral=True)
         asyncio.create_task(pipeline_runner.start(target=5, threads=1))
 
+    @discord.ui.button(label="Stock", style=discord.ButtonStyle.secondary, emoji="📦", row=0)
+    async def btn_stock(self, interaction: discord.Interaction, button: discord.ui.Button):
+        valid_c = get_file_line_count(VALID_TXT)
+        unlocked_c = get_file_line_count(UNLOCKED_TXT)
+        total = valid_c + unlocked_c
+        emb = discord.Embed(title="📦 Live Account Stock", description="Ready for member server boosting.", color=0x2ecc71)
+        emb.add_field(name="📱 Phone-Verified", value=f"`{unlocked_c}` accounts", inline=True)
+        emb.add_field(name="✉️ Email-Verified", value=f"`{valid_c}` accounts", inline=True)
+        emb.add_field(name="🔥 Ready Stock", value=f"`{total}` accounts", inline=True)
+        emb.add_field(name="💎 Exchange Rate", value="**1 Credit = 1 Server Member**", inline=False)
+        await interaction.response.send_message(embed=emb, ephemeral=True)
+
     @discord.ui.button(label="Status", style=discord.ButtonStyle.secondary, emoji="📊", row=1)
     async def btn_status(self, interaction: discord.Interaction, button: discord.ui.Button):
         emb = discord.Embed(title="🌐 Cloud System Status", color=0x2ecc71)
@@ -134,6 +146,17 @@ class DashboardPanelView(discord.ui.View):
         for k, v in bals.items():
             emb.add_field(name=k, value=f"`{v}`", inline=False)
         await interaction.response.send_message(embed=emb, ephemeral=True)
+
+    @discord.ui.button(label="Auto-Gen 24/7", style=discord.ButtonStyle.secondary, emoji="⚙️", row=1)
+    async def btn_autogen(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if not is_admin(interaction.user.id):
+            return await interaction.response.send_message("❌ Unauthorized (Owner only)", ephemeral=True)
+        if gen_runner.autogen_enabled:
+            gen_runner.stop_autogen()
+            await interaction.response.send_message("⏹️ **24/7 Auto-Generator Stopped.** Background restocker paused.", ephemeral=True)
+        else:
+            gen_runner.start_autogen(batch_size=1, cooldown_seconds=30)
+            await interaction.response.send_message("🚀 **24/7 Auto-Generator Activated!** Restocking continuously in the background.", ephemeral=True)
 
     @discord.ui.button(label="Download", style=discord.ButtonStyle.secondary, emoji="📥", row=1)
     async def btn_dl(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -162,47 +185,73 @@ def get_help_embed(category: str, user_id: int) -> discord.Embed:
 
     if cat in ("home", "main"):
         embed = discord.Embed(
-            title="🏠 NEXUVER 24/7 CLOUD BOT — HOME",
-            description=(
-                "**Welcome to the NEXUVER Cloud Suite!** 🚀\n"
-                "Automated Discord Account Generator, Phone Unlocker, and Member Booster running 24/7 on Render Cloud.\n\n"
-                "**Select a category from the dropdown below** to view detailed commands and guides."
-            ),
+            title="🏠 KYOKA & NEXUVER — QUICK START",
+            description="**Automated Discord Generator & Member Booster running 24/7 on Render.**\nSimple, clean, and modular.",
             color=0x5865F2
         )
         embed.add_field(
-            name="📌 System Info",
+            name="💎 Your Status",
             value=(
-                f"• **Bot Prefix:** `{BOT_PREFIX}` *(Slash `/` also active)*\n"
-                f"• **Your Credits:** `{bal}`\n"
-                f"• **Cloud Status:** `24/7 Online (Render)`\n"
+                f"• **Balance:** `{bal}`\n"
+                f"• **Exchange Rate:** `1 Credit = 1 Member Joined`\n"
+                f"• **24/7 Restocker:** `{'🟢 Running (Auto-Restocking)' if gen_runner.autogen_enabled else '⚪ Standby'}`\n"
                 f"• **Role:** `{'👑 Owner / Admin' if is_adm else '👤 Regular User'}`"
             ),
             inline=False
         )
         embed.add_field(
-            name="🚀 Super Simple Quick Start (3 Steps)",
+            name="⚡ Top 5 Commands (Simple & Fast)",
             value=(
-                f"1️⃣ **Check Balance:** Type `{BOT_PREFIX}credits` to view your credits.\n"
-                f"2️⃣ **Generate Accounts:** Type `{BOT_PREFIX}gen 5` to create accounts.\n"
-                f"3️⃣ **Join Your Server:** Type `{BOT_PREFIX}join discord.gg/yourcode 5` to join them!"
+                f"📦 `{BOT_PREFIX}stock` — View live accounts available to join\n"
+                f"🎁 `{BOT_PREFIX}daily` — Claim free credit every 24 hours\n"
+                f"👥 `{BOT_PREFIX}order <invite> <count>` — Add members to your server\n"
+                f"⚡ `{BOT_PREFIX}gen <count>` — Generate new accounts\n"
+                f"👤 `{BOT_PREFIX}profile` — View your credits & booster stats"
             ),
             inline=False
         )
         embed.add_field(
-            name="📂 Command Categories",
+            name="📂 Detailed Categories",
+            value="Select any category from the **dropdown menu below** to view all commands.",
+            inline=False
+        )
+        embed.set_footer(text=f"Prefix: {BOT_PREFIX} • Slash / commands also supported")
+        return embed
+
+    elif "stock" in cat or "exchange" in cat:
+        embed = discord.Embed(
+            title="📦 Category: Stock & Member Exchange",
+            description="Exchange credits directly for real Discord server members.",
+            color=0x2ecc71
+        )
+        embed.add_field(
+            name=f"`{BOT_PREFIX}stock`",
             value=(
-                "⚡ **Account Generator** — Create tokens with email & captcha solving\n"
-                "🔓 **Phone Unlocker** — Unlock locked tokens via SMS verification\n"
-                "👥 **Server Joiner** — Boost / join servers with your accounts\n"
-                "💰 **Credits System** — Manage balance & generate credits\n"
-                "🎭 **Profile Humanizer** — Apply real avatars, bios, and badges\n"
-                "🛠️ **Tools & Config** — Change settings, proxies & token checker\n"
-                "📥 **Downloads & Export** — Download your accounts in txt format"
+                "View real-time stock of phone-verified and email-verified accounts ready to join.\n"
+                "• Shows readiness bar, phone verified count, and auto-restocker state."
             ),
             inline=False
         )
-        embed.set_footer(text=f"Use the dropdown menu below • Prefix: {BOT_PREFIX}")
+        embed.add_field(
+            name=f"`{BOT_PREFIX}order <invite> <amount>` *(or {BOT_PREFIX}boost / {BOT_PREFIX}join)*",
+            value=(
+                "Exchange credits for Discord server members.\n"
+                "• **Rate:** `1 Credit = 1 Member Joined`\n"
+                "• **Guarantee:** Only successful joins cost credits. Any failed joins are **instantly refunded**!\n"
+                f"• *Example:* `{BOT_PREFIX}order discord.gg/mycode 10`"
+            ),
+            inline=False
+        )
+        embed.add_field(
+            name=f"`{BOT_PREFIX}autogen <on|off|status>`",
+            value=(
+                "Controls the 24/7 continuous account restocker on Render Cloud.\n"
+                "• Continuously generates accounts in the background so stock never runs out.\n"
+                f"• *Example:* `{BOT_PREFIX}autogen on` or `{BOT_PREFIX}autogen status`"
+            ),
+            inline=False
+        )
+        embed.set_footer(text=f"Prefix: {BOT_PREFIX} • 1 Credit = 1 Member")
         return embed
 
     elif "generator" in cat or "gen" in cat:
@@ -275,17 +324,17 @@ def get_help_embed(category: str, user_id: int) -> discord.Embed:
     elif "join" in cat or "server" in cat:
         embed = discord.Embed(
             title="👥 Category: Server Joiner & Booster",
-            description="Make your generated or unlocked accounts join any Discord server!",
+            description="Exchange credits to make real accounts join your Discord server! (1 Credit = 1 Member).",
             color=0x2ecc71
         )
         embed.add_field(
-            name=f"`{BOT_PREFIX}join <invite> [amount]`",
+            name=f"`{BOT_PREFIX}order <invite> <amount>` / `{BOT_PREFIX}join <invite> [amount]`",
             value=(
                 "Make accounts join your target Discord server.\n"
-                "• **Cost:** 1 credit per account *(Free for Owner)*\n"
+                "• **Rate:** `1 Credit = 1 Member Joined`\n"
+                "• **Guarantee:** Only successful joins cost credits. Failed joins are **automatically refunded**!\n"
                 "• **Supports:** Full invite links (`discord.gg/code`) or raw codes (`code`).\n"
-                f"• *Example:* `{BOT_PREFIX}join discord.gg/example 10`\n"
-                "• *Example:* `/join invite:example amount:5`"
+                f"• *Example:* `{BOT_PREFIX}order discord.gg/example 10`"
             ),
             inline=False
         )
@@ -299,7 +348,7 @@ def get_help_embed(category: str, user_id: int) -> discord.Embed:
     elif "credit" in cat:
         embed = discord.Embed(
             title="💰 Category: Credits System",
-            description="Manage and transfer credits to generate accounts and join servers.",
+            description="Manage, claim, and transfer credits. 1 Credit = 1 Server Member.",
             color=0xe67e22
         )
         embed.add_field(
@@ -308,8 +357,23 @@ def get_help_embed(category: str, user_id: int) -> discord.Embed:
             inline=False
         )
         embed.add_field(
+            name=f"`{BOT_PREFIX}daily`",
+            value="Claim 1 free credit every 24 hours. (1 Credit = 1 Member!).",
+            inline=False
+        )
+        embed.add_field(
+            name=f"`{BOT_PREFIX}profile [@user]`",
+            value="View detailed booster stats and total server members joined.",
+            inline=False
+        )
+        embed.add_field(
+            name=f"`{BOT_PREFIX}leaderboard` *(or {BOT_PREFIX}top)*",
+            value="View the top credit holders and top server boosters.",
+            inline=False
+        )
+        embed.add_field(
             name=f"`{BOT_PREFIX}transfer <@user> <amount>`",
-            value=f"Transfer credits from your balance to a friend.\n• *Example:* `{BOT_PREFIX}transfer @user 50`",
+            value=f"Transfer credits from your balance to a friend.\n• *Example:* `{BOT_PREFIX}transfer @user 10`",
             inline=False
         )
         embed.add_field(
@@ -422,10 +486,11 @@ class HelpSelect(discord.ui.Select):
         self.user_id = user_id
         options = [
             discord.SelectOption(label="Home", emoji="🏠", description="Overview, quick start & status", default=(current_cat == "Home")),
-            discord.SelectOption(label="Account Generator", emoji="⚡", description="!gen and !pipeline commands", default=(current_cat == "Account Generator")),
+            discord.SelectOption(label="Stock & Exchange", emoji="📦", description="!stock, !order (1 Credit = 1 Member)", default=(current_cat == "Stock & Exchange")),
+            discord.SelectOption(label="Account Generator", emoji="⚡", description="!gen, !pipeline, !autogen", default=(current_cat == "Account Generator")),
             discord.SelectOption(label="Phone Unlocker", emoji="🔓", description="!unlock, !balance, !phone_config", default=(current_cat == "Phone Unlocker")),
-            discord.SelectOption(label="Server Joiner", emoji="👥", description="!join and !start commands", default=(current_cat == "Server Joiner")),
-            discord.SelectOption(label="Credits System", emoji="💰", description="!credits, !addcredits, !transfer", default=(current_cat == "Credits System")),
+            discord.SelectOption(label="Server Joiner", emoji="👥", description="!order, !join, !start", default=(current_cat == "Server Joiner")),
+            discord.SelectOption(label="Credits System", emoji="💰", description="!credits, !daily, !profile, !top", default=(current_cat == "Credits System")),
             discord.SelectOption(label="Profile Humanizer", emoji="🎭", description="!humanize avatars & bios", default=(current_cat == "Profile Humanizer")),
             discord.SelectOption(label="Tools & Config", emoji="🛠️", description="!panel, !config, !setkey, !check", default=(current_cat == "Tools & Config")),
             discord.SelectOption(label="Downloads & Files", emoji="📥", description="!download, !export, !clear", default=(current_cat == "Downloads & Files")),
@@ -451,13 +516,19 @@ class ModularHelpView(discord.ui.View):
         view = ModularHelpView(interaction.user.id, "Home")
         await interaction.response.edit_message(embed=emb, view=view)
 
+    @discord.ui.button(label="Stock", style=discord.ButtonStyle.secondary, emoji="📦", row=1)
+    async def btn_stock(self, interaction: discord.Interaction, button: discord.ui.Button):
+        emb = get_help_embed("Stock & Exchange", interaction.user.id)
+        view = ModularHelpView(interaction.user.id, "Stock & Exchange")
+        await interaction.response.edit_message(embed=emb, view=view)
+
     @discord.ui.button(label="Gen", style=discord.ButtonStyle.secondary, emoji="⚡", row=1)
     async def btn_gen(self, interaction: discord.Interaction, button: discord.ui.Button):
         emb = get_help_embed("Account Generator", interaction.user.id)
         view = ModularHelpView(interaction.user.id, "Account Generator")
         await interaction.response.edit_message(embed=emb, view=view)
 
-    @discord.ui.button(label="Joiner", style=discord.ButtonStyle.secondary, emoji="👥", row=1)
+    @discord.ui.button(label="Join", style=discord.ButtonStyle.secondary, emoji="👥", row=1)
     async def btn_join(self, interaction: discord.Interaction, button: discord.ui.Button):
         emb = get_help_embed("Server Joiner", interaction.user.id)
         view = ModularHelpView(interaction.user.id, "Server Joiner")
@@ -469,26 +540,13 @@ class ModularHelpView(discord.ui.View):
         view = ModularHelpView(interaction.user.id, "Credits System")
         await interaction.response.edit_message(embed=emb, view=view)
 
-    @discord.ui.button(label="Panel", style=discord.ButtonStyle.success, emoji="🎮", row=1)
-    async def btn_panel(self, interaction: discord.Interaction, button: discord.ui.Button):
-        emb = discord.Embed(
-            title="🎮 NEXUVER CLOUD DASHBOARD",
-            description="Click buttons below for instant 1-click execution. Runs 24/7 on Render.",
-            color=0x9b59b6
-        )
-        emb.add_field(name="⚡ Generator", value="Create accounts with auto-captcha & email verification", inline=True)
-        emb.add_field(name="🔓 Unlocker", value="Phone verify locked accounts via SMS", inline=True)
-        emb.add_field(name="🔄 Pipeline", value="Generate and automatically unlock locked accounts", inline=True)
-        emb.set_footer(text="Nexuver 24/7 Cloud Suite | Interactive Controller")
-        await interaction.response.edit_message(embed=emb, view=DashboardPanelView())
-
 
 class StartPanelView(discord.ui.View):
     def __init__(self, user_id: int):
         super().__init__(timeout=300)
         self.user_id = user_id
 
-    @discord.ui.button(label="⚡ Generate Accounts", style=discord.ButtonStyle.primary, row=0)
+    @discord.ui.button(label="Gen 1", style=discord.ButtonStyle.primary, emoji="⚡", row=0)
     async def btn_gen(self, interaction: discord.Interaction, button: discord.ui.Button):
         if not credits_manager.can_afford(interaction.user.id, 1):
             return await interaction.response.send_message("❌ Insufficient credits! Contact the owner to get credits.", ephemeral=True)
@@ -498,23 +556,56 @@ class StartPanelView(discord.ui.View):
         await interaction.response.send_message("⚡ Starting 1 account generation...", ephemeral=True)
         asyncio.create_task(gen_runner.start(target=1, threads=1))
 
-    @discord.ui.button(label="👥 Join Server", style=discord.ButtonStyle.primary, row=0)
-    async def btn_join(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.send_message(f"💡 Type `{BOT_PREFIX}join <invite_code> [amount]` or `/join invite:<code>` to join servers!", ephemeral=True)
-
-    @discord.ui.button(label="💰 My Credits", style=discord.ButtonStyle.secondary, row=0)
-    async def btn_credits(self, interaction: discord.Interaction, button: discord.ui.Button):
-        bal = credits_manager.format_credits(interaction.user.id)
-        emb = discord.Embed(title="💰 Your Credit Balance", description=f"You currently have: **{bal}**", color=0xf1c40f)
+    @discord.ui.button(label="Stock", style=discord.ButtonStyle.secondary, emoji="📦", row=0)
+    async def btn_stock(self, interaction: discord.Interaction, button: discord.ui.Button):
+        valid_c = get_file_line_count(VALID_TXT)
+        unlocked_c = get_file_line_count(UNLOCKED_TXT)
+        total = valid_c + unlocked_c
+        emb = discord.Embed(title="📦 Live Account Stock", description="Ready for member server boosting.", color=0x2ecc71)
+        emb.add_field(name="📱 Phone-Verified", value=f"`{unlocked_c}` accounts", inline=True)
+        emb.add_field(name="✉️ Email-Verified", value=f"`{valid_c}` accounts", inline=True)
+        emb.add_field(name="🔥 Ready Stock", value=f"`{total}` accounts", inline=True)
+        emb.add_field(name="💎 Exchange Rate", value="**1 Credit = 1 Server Member**", inline=False)
         await interaction.response.send_message(embed=emb, ephemeral=True)
 
-    @discord.ui.button(label="📖 Modular Help", style=discord.ButtonStyle.secondary, row=1)
+    @discord.ui.button(label="Order Members", style=discord.ButtonStyle.primary, emoji="👥", row=0)
+    async def btn_join(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.send_message(f"💡 Type `{BOT_PREFIX}order <invite_code> <amount>` (e.g. `{BOT_PREFIX}order discord.gg/example 5`) to exchange credits for members!", ephemeral=True)
+
+    @discord.ui.button(label="My Credits", style=discord.ButtonStyle.secondary, emoji="💰", row=0)
+    async def btn_credits(self, interaction: discord.Interaction, button: discord.ui.Button):
+        bal = credits_manager.format_credits(interaction.user.id)
+        emb = discord.Embed(title="💰 Your Credit Balance", description=f"You currently have: **{bal}**\n*Exchange rate: 1 Credit = 1 Server Member*", color=0xf1c40f)
+        await interaction.response.send_message(embed=emb, ephemeral=True)
+
+    @discord.ui.button(label="Daily", style=discord.ButtonStyle.success, emoji="🎁", row=1)
+    async def btn_daily(self, interaction: discord.Interaction, button: discord.ui.Button):
+        success, msg, new_bal = credits_manager.claim_daily(interaction.user.id, reward=1)
+        emb = discord.Embed(
+            title="🎁 Daily Credit Claim",
+            description=msg,
+            color=0x2ecc71 if success else 0xe74c3c
+        )
+        emb.set_footer(text=f"Total Balance: {credits_manager.format_credits(interaction.user.id)}")
+        await interaction.response.send_message(embed=emb, ephemeral=True)
+
+    @discord.ui.button(label="Profile", style=discord.ButtonStyle.secondary, emoji="👤", row=1)
+    async def btn_profile(self, interaction: discord.Interaction, button: discord.ui.Button):
+        stats = credits_manager.get_user_stats(interaction.user.id)
+        emb = discord.Embed(title=f"👤 User Profile — {interaction.user.name}", color=0x9b59b6)
+        emb.add_field(name="Role", value=stats["role"], inline=True)
+        emb.add_field(name="Balance", value=str(stats["credits"]), inline=True)
+        emb.add_field(name="Members Boosted", value=f"{stats['orders']:,} members", inline=True)
+        emb.set_footer(text="Exchange: 1 Credit = 1 Member")
+        await interaction.response.send_message(embed=emb, ephemeral=True)
+
+    @discord.ui.button(label="Help", style=discord.ButtonStyle.secondary, emoji="📖", row=1)
     async def btn_help(self, interaction: discord.Interaction, button: discord.ui.Button):
         emb = get_help_embed("Home", interaction.user.id)
         view = ModularHelpView(interaction.user.id, "Home")
         await interaction.response.send_message(embed=emb, view=view, ephemeral=True)
 
-    @discord.ui.button(label="🎮 Dashboard Panel", style=discord.ButtonStyle.success, row=1)
+    @discord.ui.button(label="Panel", style=discord.ButtonStyle.success, emoji="🎮", row=1)
     async def btn_panel(self, interaction: discord.Interaction, button: discord.ui.Button):
         emb = discord.Embed(
             title="🎮 NEXUVER CLOUD DASHBOARD",
@@ -1216,27 +1307,45 @@ async def cmd_join(ctx: commands.Context, invite: str, amount: int = 5):
     clean_code = clean_invite_code(invite)
     start_embed = discord.Embed(
         title="👥 Server Joiner Started",
-        description=f"Attempting to join **{actual_count}** account(s) into `{clean_code}`...",
+        description=(
+            f"Attempting to join **{actual_count}** account(s) into `{clean_code}`...\n"
+            "💎 **Guarantee:** `1 Credit = 1 Member Joined`. Any failed joins are automatically refunded!"
+        ),
         color=0x3498db
     )
-    start_embed.add_field(name="Target Server", value="Fetching info...", inline=True)
-    start_embed.add_field(name="Accounts", value=str(actual_count), inline=True)
+    start_embed.add_field(name="Target Server", value="Connecting...", inline=True)
+    start_embed.add_field(name="Accounts Ordered", value=str(actual_count), inline=True)
     start_embed.set_footer(text=f"Credits Remaining: {credits_manager.format_credits(ctx.author.id)}")
     msg = await ctx.send(embed=start_embed)
 
     results = await join_server_task(invite_code=clean_code, tokens=tokens_to_use, delay=1.2)
 
+    joined_count = results.get("joined", 0)
+    failed_count = actual_count - joined_count
+
+    # 1 Credit = 1 Member Rule: Refund failed joins & record successful ones
+    if failed_count > 0:
+        credits_manager.refund_credits(ctx.author.id, failed_count)
+    if joined_count > 0:
+        credits_manager.record_members_joined(ctx.author.id, joined_count)
+
     done_embed = discord.Embed(
         title="🏁 Server Join Complete!",
-        color=0x2ecc71 if results.get("joined", 0) > 0 else 0xe74c3c
+        description=f"Exchange Result: **{joined_count}** server member(s) joined successfully.",
+        color=0x2ecc71 if joined_count > 0 else 0xe74c3c
     )
     done_embed.add_field(name="Server", value=f"`{results.get('server_name')}`", inline=True)
     done_embed.add_field(name="Invite Code", value=f"`{clean_code}`", inline=True)
-    done_embed.add_field(name="✅ Joined", value=str(results.get("joined", 0)), inline=True)
+    done_embed.add_field(name="✅ Joined", value=f"**{joined_count}** members", inline=True)
     done_embed.add_field(name="🔒 Captcha Gated", value=str(results.get("captcha", 0)), inline=True)
     done_embed.add_field(name="❌ Dead/Invalid", value=str(results.get("invalid", 0)), inline=True)
     done_embed.add_field(name="⚠️ Other Failed", value=str(results.get("failed", 0)), inline=True)
-    done_embed.set_footer(text=f"Credits Remaining: {credits_manager.format_credits(ctx.author.id)}")
+    done_embed.add_field(
+        name="💰 Credits Summary",
+        value=f"• Deducted: `{joined_count}`\n• Refunded: `{failed_count}`\n• Your Balance: `{credits_manager.format_credits(ctx.author.id)}`",
+        inline=False
+    )
+    done_embed.set_footer(text="1 Credit = 1 Member Guarantee • Kyoka Cloud Suite")
     await msg.edit(embed=done_embed)
 
 
@@ -1437,6 +1546,187 @@ async def cmd_clear(ctx: commands.Context, category: str):
         await ctx.send(f"🗑️ Cleared `{category}.txt` successfully.", ephemeral=True)
     else:
         await ctx.send("⚠️ File already empty.", ephemeral=True)
+
+
+# 20. ORDER / BOOST / EXCHANGE (1 CREDIT = 1 MEMBER)
+@bot.hybrid_command(name="order", aliases=["boost", "exchange"], description="Exchange credits for Discord server members (1 Credit = 1 Member)")
+@app_commands.describe(invite="Discord server invite code or link (e.g. discord.gg/example or example)", amount="Number of server members to order")
+async def cmd_order(ctx: commands.Context, invite: str, amount: int = 1):
+    """Convenient alias for cmd_join with 1 credit = 1 member guarantee."""
+    await cmd_join(ctx, invite=invite, amount=amount)
+
+
+# 21. STOCK SYSTEM (LIVE AVAILABLE ACCOUNTS)
+@bot.hybrid_command(name="stock", description="Check live stock of accounts ready to join servers")
+async def cmd_stock(ctx: commands.Context):
+    valid_c = get_file_line_count(VALID_TXT)
+    unlocked_c = get_file_line_count(UNLOCKED_TXT)
+    locked_c = get_file_line_count(LOCKED_TXT)
+    unverified_c = get_file_line_count(UNVERIFIED_TXT)
+    total_ready = valid_c + unlocked_c
+    total_all = total_ready + locked_c + unverified_c
+
+    if total_all > 0:
+        filled = int((total_ready / total_all) * 10)
+        bar = "█" * filled + "░" * (10 - filled)
+        pct = int((total_ready / total_all) * 100)
+    else:
+        bar = "░" * 10
+        pct = 0
+
+    embed = discord.Embed(
+        title="📦 KYOKA & NEXUVER — LIVE STOCK SYSTEM",
+        description=(
+            "**All accounts ready for server joining and member boosting.**\n"
+            "💎 **Exchange Rate:** `1 Credit = 1 Server Member`\n"
+            "*(Failed joins are automatically refunded so you only pay for members who actually join!)*"
+        ),
+        color=0x2ecc71 if total_ready > 0 else 0xe74c3c
+    )
+    embed.add_field(name="📱 Phone-Verified Stock", value=f"**{unlocked_c:,}** accounts *(SMS Verified)*", inline=True)
+    embed.add_field(name="✉️ Email-Verified Stock", value=f"**{valid_c:,}** accounts *(Email Verified)*", inline=True)
+    embed.add_field(name="🔥 Total Ready Members", value=f"**{total_ready:,} Members Ready**", inline=False)
+    embed.add_field(name="📊 Stock Readiness", value=f"`[{bar}]` **{pct}%** ready", inline=False)
+    embed.add_field(
+        name="⚙️ 24/7 Cloud Restocker",
+        value=(
+            f"• State: `{'🟢 Active (Restocking 24/7)' if gen_runner.autogen_enabled else '⚪ Idle'}`\n"
+            f"• Produced in Background: `{gen_runner.autogen_total_produced:,} accounts`"
+        ),
+        inline=False
+    )
+    embed.add_field(
+        name="🚀 How to Order Members",
+        value=f"Type `{BOT_PREFIX}order <invite> <amount>`\n*Example:* `{BOT_PREFIX}order discord.gg/example 10`",
+        inline=False
+    )
+    embed.set_footer(text=f"Your Balance: {credits_manager.format_credits(ctx.author.id)} • Prefix: {BOT_PREFIX}")
+    await ctx.send(embed=embed)
+
+
+# 22. 24/7 CONTINUOUS GENERATOR (RENDER CLOUD)
+@bot.hybrid_command(name="autogen", description="Toggle 24/7 continuous account restocker on Render Cloud")
+@app_commands.describe(action="Turn on, off, or check status", cooldown="Seconds between generation batches (min 10)")
+@app_commands.choices(action=[
+    app_commands.Choice(name="Status (Check current 24/7 restocker state)", value="status"),
+    app_commands.Choice(name="On (Start continuous 24/7 restocker)", value="on"),
+    app_commands.Choice(name="Off (Stop continuous 24/7 restocker)", value="off"),
+])
+async def cmd_autogen(ctx: commands.Context, action: str = "status", cooldown: int = 30):
+    act = action.lower().strip()
+    if act in ("on", "start"):
+        if not is_admin(ctx.author.id):
+            return await ctx.send("❌ **Access Denied.** Only the bot owner can toggle the 24/7 restocker.", ephemeral=True)
+        if gen_runner.autogen_enabled:
+            return await ctx.send("⚠️ 24/7 Auto-Generator is already running!", ephemeral=True)
+        cooldown = max(10, cooldown)
+        started = gen_runner.start_autogen(batch_size=1, cooldown_seconds=cooldown)
+        if started:
+            embed = discord.Embed(
+                title="🚀 24/7 Auto-Generator Activated!",
+                description=(
+                    "The bot is now continuously generating accounts in the background on Render Cloud.\n"
+                    f"• **Batch:** 1 account per cycle\n"
+                    f"• **Cooldown:** {cooldown}s between cycles\n"
+                    f"• **Target:** `output/valid.txt`\n"
+                    f"• **Stop Command:** `{BOT_PREFIX}autogen off`"
+                ),
+                color=0x2ecc71
+            )
+            await ctx.send(embed=embed)
+        else:
+            await ctx.send("❌ Failed to start auto-generator.", ephemeral=True)
+
+    elif act in ("off", "stop"):
+        if not is_admin(ctx.author.id):
+            return await ctx.send("❌ **Access Denied.** Only the bot owner can toggle the 24/7 restocker.", ephemeral=True)
+        stopped = gen_runner.stop_autogen()
+        if stopped:
+            await ctx.send("⏹️ **24/7 Auto-Generator Stopped.** Background restocker paused.")
+        else:
+            await ctx.send("⚠️ Auto-Generator was not running.")
+
+    else:
+        # Status
+        uptime_str = "Not running"
+        if gen_runner.autogen_enabled and gen_runner.autogen_start_time:
+            elapsed = int(time.time() - gen_runner.autogen_start_time)
+            hours, rem = divmod(elapsed, 3600)
+            mins, secs = divmod(rem, 60)
+            uptime_str = f"{hours}h {mins}m {secs}s"
+
+        embed = discord.Embed(
+            title="⚙️ 24/7 Auto-Generator Status",
+            color=0x2ecc71 if gen_runner.autogen_enabled else 0x95a5a6
+        )
+        embed.add_field(name="State", value="🟢 **RUNNING 24/7**" if gen_runner.autogen_enabled else "⚪ **PAUSED**", inline=True)
+        embed.add_field(name="Uptime", value=uptime_str, inline=True)
+        embed.add_field(name="Total Produced", value=f"`{gen_runner.autogen_total_produced:,}` accounts", inline=True)
+        embed.add_field(name="Ready Stock", value=f"`{get_file_line_count(VALID_TXT) + get_file_line_count(UNLOCKED_TXT):,}` accounts", inline=True)
+        embed.set_footer(text=f"Toggle with '{BOT_PREFIX}autogen on' or '{BOT_PREFIX}autogen off'")
+        await ctx.send(embed=embed)
+
+
+# 23. DAILY REWARDS
+@bot.hybrid_command(name="daily", description="Claim free daily credits (1 Credit = 1 Member)")
+async def cmd_daily(ctx: commands.Context):
+    success, msg, new_bal = credits_manager.claim_daily(ctx.author.id, reward=1)
+    embed = discord.Embed(
+        title="🎁 Daily Credit Claim",
+        description=msg,
+        color=0x2ecc71 if success else 0xe74c3c
+    )
+    embed.add_field(name="💎 Your Balance", value=credits_manager.format_credits(ctx.author.id), inline=True)
+    embed.add_field(name="🏷️ Exchange Rate", value="**1 Credit = 1 Server Member**", inline=True)
+    embed.set_footer(text=f"Claim once every 24 hours! • Prefix: {BOT_PREFIX}")
+    await ctx.send(embed=embed)
+
+
+# 24. USER PROFILE CARD
+@bot.hybrid_command(name="profile", description="View user profile, credit balance, and member boost stats")
+@app_commands.describe(user="The user whose profile you want to check (defaults to yourself)")
+async def cmd_profile(ctx: commands.Context, user: Optional[discord.User] = None):
+    target = user or ctx.author
+    stats = credits_manager.get_user_stats(target.id)
+    embed = discord.Embed(
+        title=f"👤 User Profile — {target.name}",
+        color=0x9b59b6
+    )
+    if hasattr(target, "display_avatar") and target.display_avatar:
+        embed.set_thumbnail(url=target.display_avatar.url)
+    embed.add_field(name="🆔 User ID", value=f"`{target.id}`", inline=True)
+    embed.add_field(name="👑 Role", value=stats["role"], inline=True)
+    embed.add_field(name="💰 Credit Balance", value=str(stats["credits"]), inline=True)
+    embed.add_field(name="👥 Members Boosted", value=f"**{stats['orders']:,}** members joined servers", inline=False)
+    embed.add_field(name="💎 Exchange Rate", value="**1 Credit = 1 Discord Server Member**", inline=False)
+    embed.set_footer(text=f"Prefix: {BOT_PREFIX} | Kyoka Suite")
+    await ctx.send(embed=embed)
+
+
+# 25. LEADERBOARD
+@bot.hybrid_command(name="leaderboard", aliases=["top"], description="View top credit holders and server boosters")
+async def cmd_leaderboard(ctx: commands.Context):
+    top_users = credits_manager.get_leaderboard(limit=10)
+    embed = discord.Embed(
+        title="🏆 KYOKA LEADERBOARD — TOP USERS",
+        description="Top credit holders & server boosters:",
+        color=0xf1c40f
+    )
+    medals = ["🥇", "🥈", "🥉", "4️⃣", "5️⃣", "6️⃣", "7️⃣", "8️⃣", "9️⃣", "🔟"]
+    if not top_users:
+        embed.description = "No registered users on the leaderboard yet. Be the first to claim daily credits with `!daily`!"
+    else:
+        lines = []
+        for i, (uid, bal) in enumerate(top_users):
+            medal = medals[i] if i < len(medals) else f"`#{i+1}`"
+            mention = f"<@{uid}>"
+            stats = credits_manager.get_user_stats(int(uid))
+            orders = stats.get("orders", 0)
+            lines.append(f"{medal} {mention} — **{bal:,} credits** *(Boosted {orders:,} members)*")
+        embed.add_field(name="Top Ranks", value="\n".join(lines), inline=False)
+
+    embed.set_footer(text=f"1 Credit = 1 Member • Claim yours with {BOT_PREFIX}daily")
+    await ctx.send(embed=embed)
 
 
 # ==================== MAIN LAUNCHER ====================
