@@ -7,6 +7,7 @@ import httpx
 import discord
 from discord import app_commands
 from discord.ext import commands
+from typing import Optional, List, Dict, Any
 
 from config import (
     DISCORD_BOT_TOKEN,
@@ -28,6 +29,8 @@ from config import (
 from core.gen_runner import gen_runner
 from core.unlock_runner import unlock_runner
 from core.pipeline_runner import pipeline_runner
+from core.credits_manager import credits_manager
+from core.joiner import join_server_task, clean_invite_code
 from web_server import start_web_server, set_bot_instance
 from keep_alive import run_keep_alive_loop
 
@@ -151,6 +154,380 @@ class DashboardPanelView(discord.ui.View):
         await interaction.response.send_message("🛑 All tasks stopped.", ephemeral=True)
 
 
+# ==================== MODULAR HELP SYSTEM ====================
+def get_help_embed(category: str, user_id: int) -> discord.Embed:
+    cat = category.lower().strip()
+    bal = credits_manager.format_credits(user_id)
+    is_adm = is_admin(user_id)
+
+    if cat in ("home", "main"):
+        embed = discord.Embed(
+            title="🏠 NEXUVER 24/7 CLOUD BOT — HOME",
+            description=(
+                "**Welcome to the NEXUVER Cloud Suite!** 🚀\n"
+                "Automated Discord Account Generator, Phone Unlocker, and Member Booster running 24/7 on Render Cloud.\n\n"
+                "**Select a category from the dropdown below** to view detailed commands and guides."
+            ),
+            color=0x5865F2
+        )
+        embed.add_field(
+            name="📌 System Info",
+            value=(
+                f"• **Bot Prefix:** `{BOT_PREFIX}` *(Slash `/` also active)*\n"
+                f"• **Your Credits:** `{bal}`\n"
+                f"• **Cloud Status:** `24/7 Online (Render)`\n"
+                f"• **Role:** `{'👑 Owner / Admin' if is_adm else '👤 Regular User'}`"
+            ),
+            inline=False
+        )
+        embed.add_field(
+            name="🚀 Super Simple Quick Start (3 Steps)",
+            value=(
+                f"1️⃣ **Check Balance:** Type `{BOT_PREFIX}credits` to view your credits.\n"
+                f"2️⃣ **Generate Accounts:** Type `{BOT_PREFIX}gen 5` to create accounts.\n"
+                f"3️⃣ **Join Your Server:** Type `{BOT_PREFIX}join discord.gg/yourcode 5` to join them!"
+            ),
+            inline=False
+        )
+        embed.add_field(
+            name="📂 Command Categories",
+            value=(
+                "⚡ **Account Generator** — Create tokens with email & captcha solving\n"
+                "🔓 **Phone Unlocker** — Unlock locked tokens via SMS verification\n"
+                "👥 **Server Joiner** — Boost / join servers with your accounts\n"
+                "💰 **Credits System** — Manage balance & generate credits\n"
+                "🎭 **Profile Humanizer** — Apply real avatars, bios, and badges\n"
+                "🛠️ **Tools & Config** — Change settings, proxies & token checker\n"
+                "📥 **Downloads & Export** — Download your accounts in txt format"
+            ),
+            inline=False
+        )
+        embed.set_footer(text=f"Use the dropdown menu below • Prefix: {BOT_PREFIX}")
+        return embed
+
+    elif "generator" in cat or "gen" in cat:
+        embed = discord.Embed(
+            title="⚡ Category: Account Generator",
+            description="Create Discord accounts automatically with email verification & captcha solving.",
+            color=0x9b59b6
+        )
+        embed.add_field(
+            name=f"`{BOT_PREFIX}gen <amount> [threads]`",
+            value=(
+                "Generate Discord accounts.\n"
+                "• **Cost:** 1 credit per account *(Free for Owner)*\n"
+                "• **Credentials:** Sent directly to your private DMs!\n"
+                f"• *Example:* `{BOT_PREFIX}gen 5` or `/gen amount:5 threads:1`"
+            ),
+            inline=False
+        )
+        embed.add_field(
+            name=f"`{BOT_PREFIX}pipeline <amount> [threads]`",
+            value=(
+                "**Ultimate Auto-Pipeline**: Generates accounts, and if any account gets locked, it immediately unlocks it with phone verification!\n"
+                f"• *Example:* `{BOT_PREFIX}pipeline 5` or `/pipeline amount:5`"
+            ),
+            inline=False
+        )
+        embed.add_field(
+            name=f"`{BOT_PREFIX}stop gen`",
+            value="Safely stops the active generator task.",
+            inline=False
+        )
+        embed.set_footer(text=f"Prefix: {BOT_PREFIX} | Nexuver Marketplace")
+        return embed
+
+    elif "unlock" in cat or "phone" in cat:
+        embed = discord.Embed(
+            title="🔓 Category: Phone Unlocker & Verifier",
+            description="Unlock locked Discord accounts using real SMS numbers (5sim, SMSBower, HeroSMS).",
+            color=0xf1c40f
+        )
+        embed.add_field(
+            name=f"`{BOT_PREFIX}unlock [threads]`",
+            value=(
+                "Starts phone verification on locked accounts.\n"
+                "• **File:** Attach a `.txt` file with tokens, or it reads `output/locked.txt`.\n"
+                f"• *Example:* `{BOT_PREFIX}unlock 5` or `/unlock threads:5`"
+            ),
+            inline=False
+        )
+        embed.add_field(
+            name=f"`{BOT_PREFIX}balance`",
+            value="Check your live SMS balance across 5sim, SMSBower, HeroSMS, and TigerSMS.",
+            inline=False
+        )
+        embed.add_field(
+            name=f"`{BOT_PREFIX}phone_config <service> <country> [operator]`",
+            value=(
+                "Change SMS country & operator on the fly.\n"
+                f"• *Example:* `{BOT_PREFIX}phone_config 5sim indonesia virtual51`"
+            ),
+            inline=False
+        )
+        embed.add_field(
+            name=f"`{BOT_PREFIX}stop unlock`",
+            value="Safely cancels any active phone unlocking task.",
+            inline=False
+        )
+        return embed
+
+    elif "join" in cat or "server" in cat:
+        embed = discord.Embed(
+            title="👥 Category: Server Joiner & Booster",
+            description="Make your generated or unlocked accounts join any Discord server!",
+            color=0x2ecc71
+        )
+        embed.add_field(
+            name=f"`{BOT_PREFIX}join <invite> [amount]`",
+            value=(
+                "Make accounts join your target Discord server.\n"
+                "• **Cost:** 1 credit per account *(Free for Owner)*\n"
+                "• **Supports:** Full invite links (`discord.gg/code`) or raw codes (`code`).\n"
+                f"• *Example:* `{BOT_PREFIX}join discord.gg/example 10`\n"
+                "• *Example:* `/join invite:example amount:5`"
+            ),
+            inline=False
+        )
+        embed.add_field(
+            name=f"`{BOT_PREFIX}start`",
+            value="Open the system start panel with interactive quick action buttons.",
+            inline=False
+        )
+        return embed
+
+    elif "credit" in cat:
+        embed = discord.Embed(
+            title="💰 Category: Credits System",
+            description="Manage and transfer credits to generate accounts and join servers.",
+            color=0xe67e22
+        )
+        embed.add_field(
+            name=f"`{BOT_PREFIX}credits [@user]`",
+            value="Check your own or another user's credit balance. *(Owner has ♾️ Infinite)*.",
+            inline=False
+        )
+        embed.add_field(
+            name=f"`{BOT_PREFIX}transfer <@user> <amount>`",
+            value=f"Transfer credits from your balance to a friend.\n• *Example:* `{BOT_PREFIX}transfer @user 50`",
+            inline=False
+        )
+        embed.add_field(
+            name="👑 OWNER COMMANDS (Infinite Credit Generation)",
+            value=(
+                f"`{BOT_PREFIX}addcredits <@user> <amount>` — Add credits to a user\n"
+                f"`{BOT_PREFIX}removecredits <@user> <amount>` — Remove credits from a user\n"
+                f"`{BOT_PREFIX}setcredits <@user> <amount>` — Set user's exact balance\n"
+                "*(Owners bypass all credit deductions completely)*"
+            ),
+            inline=False
+        )
+        return embed
+
+    elif "human" in cat:
+        embed = discord.Embed(
+            title="🎭 Category: Profile Humanizer",
+            description="Make accounts look 100% human with realistic profiles.",
+            color=0xe91e63
+        )
+        embed.add_field(
+            name=f"`{BOT_PREFIX}humanize [category] [limit]`",
+            value=(
+                "Applies real avatars, bios, pronouns, and HypeSquad badges to saved accounts.\n"
+                f"• *Example:* `{BOT_PREFIX}humanize valid 5`\n"
+                "• *Example:* `/humanize category:unlocked limit:10`"
+            ),
+            inline=False
+        )
+        embed.add_field(
+            name=f"`{BOT_PREFIX}toggle humanizer on/off`",
+            value="Toggle automatic humanization during account generation.",
+            inline=False
+        )
+        return embed
+
+    elif "tool" in cat or "config" in cat:
+        embed = discord.Embed(
+            title="🛠️ Category: Tools & Configuration",
+            description="Settings, live health checks, and proxy management.",
+            color=0x3498db
+        )
+        embed.add_field(
+            name=f"`{BOT_PREFIX}panel`",
+            value="Opens the interactive 1-click button dashboard.",
+            inline=False
+        )
+        embed.add_field(
+            name=f"`{BOT_PREFIX}status`",
+            value="View bot ping, uptime, active workers, and token counts.",
+            inline=False
+        )
+        embed.add_field(
+            name=f"`{BOT_PREFIX}config`",
+            value="Displays all active settings and API keys.",
+            inline=False
+        )
+        embed.add_field(
+            name=f"`{BOT_PREFIX}setkey <service> <key>`",
+            value="Change API keys (`5sim`, `onyx`, `afham`, `9cap`) on the fly.",
+            inline=False
+        )
+        embed.add_field(
+            name=f"`{BOT_PREFIX}check [category]`",
+            value="Scan tokens to see if they are Alive, Phone-Locked, or Dead.",
+            inline=False
+        )
+        embed.add_field(
+            name=f"`{BOT_PREFIX}proxies` / `{BOT_PREFIX}addproxy`",
+            value="View proxy stats or add new proxies to the pool.",
+            inline=False
+        )
+        return embed
+
+    elif "download" in cat or "file" in cat or "export" in cat:
+        embed = discord.Embed(
+            title="📥 Category: Downloads & Exports",
+            description="Download and format your generated accounts.",
+            color=0x1abc9c
+        )
+        embed.add_field(
+            name=f"`{BOT_PREFIX}download <category>`",
+            value=(
+                "Download raw token files as `.txt` attachments.\n"
+                "• Categories: `valid`, `unlocked`, `locked`, `unverified`\n"
+                f"• *Example:* `{BOT_PREFIX}download valid`"
+            ),
+            inline=False
+        )
+        embed.add_field(
+            name=f"`{BOT_PREFIX}export <format> <category>`",
+            value=(
+                "Export tokens formatted as `tokens_only` or `combos`.\n"
+                f"• *Example:* `{BOT_PREFIX}export tokens_only valid`"
+            ),
+            inline=False
+        )
+        embed.add_field(
+            name=f"`{BOT_PREFIX}clear <category>`",
+            value=f"Wipes clean any token file (e.g. `{BOT_PREFIX}clear invalid`).",
+            inline=False
+        )
+        return embed
+
+    return get_help_embed("home", user_id)
+
+
+class HelpSelect(discord.ui.Select):
+    def __init__(self, user_id: int, current_cat: str = "Home"):
+        self.user_id = user_id
+        options = [
+            discord.SelectOption(label="Home", emoji="🏠", description="Overview, quick start & status", default=(current_cat == "Home")),
+            discord.SelectOption(label="Account Generator", emoji="⚡", description="!gen and !pipeline commands", default=(current_cat == "Account Generator")),
+            discord.SelectOption(label="Phone Unlocker", emoji="🔓", description="!unlock, !balance, !phone_config", default=(current_cat == "Phone Unlocker")),
+            discord.SelectOption(label="Server Joiner", emoji="👥", description="!join and !start commands", default=(current_cat == "Server Joiner")),
+            discord.SelectOption(label="Credits System", emoji="💰", description="!credits, !addcredits, !transfer", default=(current_cat == "Credits System")),
+            discord.SelectOption(label="Profile Humanizer", emoji="🎭", description="!humanize avatars & bios", default=(current_cat == "Profile Humanizer")),
+            discord.SelectOption(label="Tools & Config", emoji="🛠️", description="!panel, !config, !setkey, !check", default=(current_cat == "Tools & Config")),
+            discord.SelectOption(label="Downloads & Files", emoji="📥", description="!download, !export, !clear", default=(current_cat == "Downloads & Files")),
+        ]
+        super().__init__(placeholder="📂 Select a category to view commands...", min_values=1, max_values=1, options=options, row=0)
+
+    async def callback(self, interaction: discord.Interaction):
+        selected = self.values[0]
+        embed = get_help_embed(selected, interaction.user.id)
+        view = ModularHelpView(interaction.user.id, current_cat=selected)
+        await interaction.response.edit_message(embed=embed, view=view)
+
+
+class ModularHelpView(discord.ui.View):
+    def __init__(self, user_id: int, current_cat: str = "Home"):
+        super().__init__(timeout=300)
+        self.user_id = user_id
+        self.add_item(HelpSelect(user_id, current_cat))
+
+    @discord.ui.button(label="Home", style=discord.ButtonStyle.primary, emoji="🏠", row=1)
+    async def btn_home(self, interaction: discord.Interaction, button: discord.ui.Button):
+        emb = get_help_embed("Home", interaction.user.id)
+        view = ModularHelpView(interaction.user.id, "Home")
+        await interaction.response.edit_message(embed=emb, view=view)
+
+    @discord.ui.button(label="Gen", style=discord.ButtonStyle.secondary, emoji="⚡", row=1)
+    async def btn_gen(self, interaction: discord.Interaction, button: discord.ui.Button):
+        emb = get_help_embed("Account Generator", interaction.user.id)
+        view = ModularHelpView(interaction.user.id, "Account Generator")
+        await interaction.response.edit_message(embed=emb, view=view)
+
+    @discord.ui.button(label="Joiner", style=discord.ButtonStyle.secondary, emoji="👥", row=1)
+    async def btn_join(self, interaction: discord.Interaction, button: discord.ui.Button):
+        emb = get_help_embed("Server Joiner", interaction.user.id)
+        view = ModularHelpView(interaction.user.id, "Server Joiner")
+        await interaction.response.edit_message(embed=emb, view=view)
+
+    @discord.ui.button(label="Credits", style=discord.ButtonStyle.secondary, emoji="💰", row=1)
+    async def btn_credits(self, interaction: discord.Interaction, button: discord.ui.Button):
+        emb = get_help_embed("Credits System", interaction.user.id)
+        view = ModularHelpView(interaction.user.id, "Credits System")
+        await interaction.response.edit_message(embed=emb, view=view)
+
+    @discord.ui.button(label="Panel", style=discord.ButtonStyle.success, emoji="🎮", row=1)
+    async def btn_panel(self, interaction: discord.Interaction, button: discord.ui.Button):
+        emb = discord.Embed(
+            title="🎮 NEXUVER CLOUD DASHBOARD",
+            description="Click buttons below for instant 1-click execution. Runs 24/7 on Render.",
+            color=0x9b59b6
+        )
+        emb.add_field(name="⚡ Generator", value="Create accounts with auto-captcha & email verification", inline=True)
+        emb.add_field(name="🔓 Unlocker", value="Phone verify locked accounts via SMS", inline=True)
+        emb.add_field(name="🔄 Pipeline", value="Generate and automatically unlock locked accounts", inline=True)
+        emb.set_footer(text="Nexuver 24/7 Cloud Suite | Interactive Controller")
+        await interaction.response.edit_message(embed=emb, view=DashboardPanelView())
+
+
+class StartPanelView(discord.ui.View):
+    def __init__(self, user_id: int):
+        super().__init__(timeout=300)
+        self.user_id = user_id
+
+    @discord.ui.button(label="⚡ Generate Accounts", style=discord.ButtonStyle.primary, row=0)
+    async def btn_gen(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if not credits_manager.can_afford(interaction.user.id, 1):
+            return await interaction.response.send_message("❌ Insufficient credits! Contact the owner to get credits.", ephemeral=True)
+        if gen_runner.is_running:
+            return await interaction.response.send_message("⚠️ Generator already active!", ephemeral=True)
+        credits_manager.deduct_credits(interaction.user.id, 1)
+        await interaction.response.send_message("⚡ Starting 1 account generation...", ephemeral=True)
+        asyncio.create_task(gen_runner.start(target=1, threads=1))
+
+    @discord.ui.button(label="👥 Join Server", style=discord.ButtonStyle.primary, row=0)
+    async def btn_join(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.send_message(f"💡 Type `{BOT_PREFIX}join <invite_code> [amount]` or `/join invite:<code>` to join servers!", ephemeral=True)
+
+    @discord.ui.button(label="💰 My Credits", style=discord.ButtonStyle.secondary, row=0)
+    async def btn_credits(self, interaction: discord.Interaction, button: discord.ui.Button):
+        bal = credits_manager.format_credits(interaction.user.id)
+        emb = discord.Embed(title="💰 Your Credit Balance", description=f"You currently have: **{bal}**", color=0xf1c40f)
+        await interaction.response.send_message(embed=emb, ephemeral=True)
+
+    @discord.ui.button(label="📖 Modular Help", style=discord.ButtonStyle.secondary, row=1)
+    async def btn_help(self, interaction: discord.Interaction, button: discord.ui.Button):
+        emb = get_help_embed("Home", interaction.user.id)
+        view = ModularHelpView(interaction.user.id, "Home")
+        await interaction.response.send_message(embed=emb, view=view, ephemeral=True)
+
+    @discord.ui.button(label="🎮 Dashboard Panel", style=discord.ButtonStyle.success, row=1)
+    async def btn_panel(self, interaction: discord.Interaction, button: discord.ui.Button):
+        emb = discord.Embed(
+            title="🎮 NEXUVER CLOUD DASHBOARD",
+            description="Click buttons below for instant 1-click execution. Runs 24/7 on Render.",
+            color=0x9b59b6
+        )
+        emb.add_field(name="⚡ Generator", value="Create accounts with auto-captcha & email verification", inline=True)
+        emb.add_field(name="🔓 Unlocker", value="Phone verify locked accounts via SMS", inline=True)
+        emb.add_field(name="🔄 Pipeline", value="Generate and automatically unlock locked accounts", inline=True)
+        emb.set_footer(text="Nexuver 24/7 Cloud Suite | Interactive Controller")
+        await interaction.response.send_message(embed=emb, view=DashboardPanelView(), ephemeral=True)
+
+
 # ==================== HELPER FUNCTIONS ====================
 def get_file_line_count(p):
     if not p.exists():
@@ -205,51 +582,108 @@ async def on_ready():
 
 # ==================== SLASH & PREFIX COMMANDS ====================
 
-# 1. HELP COMMAND
-@bot.hybrid_command(name="help", description="Show all available bot commands and usage guide")
+# 1. HELP COMMAND (MODULAR INTERACTIVE)
+@bot.hybrid_command(name="help", description="Show the modular interactive help menu with categories")
 async def cmd_help(ctx: commands.Context):
+    embed = get_help_embed("home", ctx.author.id)
+    view = ModularHelpView(ctx.author.id, "Home")
+    await ctx.send(embed=embed, view=view)
+
+
+# 1.1 START COMMAND (WELCOME & LAUNCH PANEL)
+@bot.hybrid_command(name="start", description="System start: welcome panel, credit balance & quick buttons")
+async def cmd_start(ctx: commands.Context):
+    bal = credits_manager.format_credits(ctx.author.id)
+    role_badge = "👑 Owner / Admin" if is_admin(ctx.author.id) else "👤 Member"
     embed = discord.Embed(
-        title="🌙 NEXUVER EVS & UNLOCKER — 24/7 Bot Suite",
-        description="Full Discord control for Account Generation, Phone Verification, and Auto-Pipelines on Render Cloud.",
-        color=0x7289DA
+        title="🚀 NEXUVER 24/7 CLOUD SYSTEM — STARTED",
+        description=(
+            f"Hello {ctx.author.mention}! The system is active and running 24/7 on Render.\n\n"
+            f"• **Your Role:** `{role_badge}`\n"
+            f"• **Your Credits:** `{bal}`\n"
+            f"• **Bot Prefix:** `{BOT_PREFIX}` *(Slash `/` also active)*\n\n"
+            "Use the quick action buttons below or type `!help` for the modular guide."
+        ),
+        color=0x5865F2
     )
     embed.add_field(
-        name="⚡ Account Generator",
-        value="`/gen <amount> [threads]` or `!gen <amount>`\nGenerates Discord accounts with email verification & captcha solving.",
+        name="⚡ Quick Commands",
+        value=(
+            f"`{BOT_PREFIX}gen 5` — Generate 5 accounts\n"
+            f"`{BOT_PREFIX}join <invite> 5` — Join accounts to server\n"
+            f"`{BOT_PREFIX}credits` — View your credit balance\n"
+            f"`{BOT_PREFIX}help` — Interactive modular help menu"
+        ),
         inline=False
     )
-    embed.add_field(
-        name="🔓 Phone Unlocker",
-        value="`/unlock [threads]` or `!unlock [threads]` *(attach .txt file or paste)*\nVerifies phone numbers to unlock locked Discord accounts.",
-        inline=False
-    )
-    embed.add_field(
-        name="🔄 Auto Pipeline",
-        value="`/pipeline <amount> [threads]` or `!pipeline <amount>`\nAuto-generates accounts and automatically unlocks any that get locked!",
-        inline=False
-    )
-    embed.add_field(
-        name="📊 Monitoring & Stats",
-        value="`/status` — Check active jobs, bot uptime, and system info\n`/tokens` — View total saved tokens across all output files\n`/balance` — Check SMS service balances (5sim, SMSBower, etc.)",
-        inline=False
-    )
-    embed.add_field(
-        name="📥 File Retrieval & Formatting",
-        value="`/download <category>` — Download raw token files\n`/export <format> <category>` — Export as `tokens_only` or `combos`",
-        inline=False
-    )
-    embed.add_field(
-        name="🛠️ Management & Utilities",
-        value="`/setkey <service> <key>` — Update 5sim, onyx, afham, 9captcha keys dynamically\n`/check <category>` — Live Discord token validity checker\n`/proxies` & `/addproxy` — Check & upload proxy rotation list\n`/join <invite>` — Join a server using your generated accounts",
-        inline=False
-    )
-    embed.add_field(
-        name="🛑 Task Control",
-        value="`/stop [type]` — Stop running `gen`, `unlock`, `pipeline`, or `all` tasks",
-        inline=False
-    )
-    embed.set_footer(text=f"Prefix: {BOT_PREFIX} | Cloud Hosting: Render 24/7 | Nexuver Marketplace")
+    embed.set_footer(text="Nexuver 24/7 Cloud Suite • Fast & Reliable")
+    await ctx.send(embed=embed, view=StartPanelView(ctx.author.id))
+
+
+# 1.2 CREDITS BALANCE COMMAND
+@bot.hybrid_command(name="credits", description="Check your or another user's credit balance")
+@app_commands.describe(user="User to check (optional, defaults to yourself)")
+async def cmd_credits(ctx: commands.Context, user: Optional[discord.User] = None):
+    target = user or ctx.author
+    bal = credits_manager.format_credits(target.id)
+    role = "👑 Owner" if is_admin(target.id) else "👤 Member"
+    embed = discord.Embed(title="💰 Credit Balance", color=0xf1c40f)
+    embed.add_field(name="User", value=target.mention, inline=True)
+    embed.add_field(name="Role", value=role, inline=True)
+    embed.add_field(name="Balance", value=f"**{bal}**", inline=False)
+    if is_admin(target.id):
+        embed.set_footer(text="Owners have unlimited infinite credits to generate accounts & boost servers.")
     await ctx.send(embed=embed)
+
+
+# 1.3 OWNER: ADD CREDITS COMMAND (INFINITE GENERATION)
+@bot.hybrid_command(name="addcredits", description="Add credits to a user (Owner only)")
+@app_commands.describe(user="User to give credits to", amount="Number of credits to add")
+async def cmd_addcredits(ctx: commands.Context, user: discord.User, amount: int):
+    if not is_admin(ctx.author.id):
+        return await ctx.send("❌ **Access Denied**: Only the bot owner can generate credits.", ephemeral=True)
+    if amount <= 0:
+        return await ctx.send("❌ Amount must be greater than 0.", ephemeral=True)
+    new_bal = credits_manager.add_credits(user.id, amount)
+    embed = discord.Embed(title="💰 Credits Generated", color=0x2ecc71)
+    embed.description = f"Added **{amount:,}** credits to {user.mention}!\nNew Balance: **{new_bal:,} credits**"
+    await ctx.send(embed=embed)
+
+
+# 1.4 OWNER: REMOVE CREDITS COMMAND
+@bot.hybrid_command(name="removecredits", description="Remove credits from a user (Owner only)")
+@app_commands.describe(user="User to remove credits from", amount="Number of credits to remove")
+async def cmd_removecredits(ctx: commands.Context, user: discord.User, amount: int):
+    if not is_admin(ctx.author.id):
+        return await ctx.send("❌ **Access Denied**: Only the bot owner can remove credits.", ephemeral=True)
+    new_bal = credits_manager.remove_credits(user.id, amount)
+    embed = discord.Embed(title="💰 Credits Removed", color=0xe74c3c)
+    embed.description = f"Removed **{amount:,}** credits from {user.mention}.\nNew Balance: **{new_bal:,} credits**"
+    await ctx.send(embed=embed)
+
+
+# 1.5 OWNER: SET CREDITS COMMAND
+@bot.hybrid_command(name="setcredits", description="Set a user's exact credits balance (Owner only)")
+@app_commands.describe(user="Target user", amount="Exact credits amount")
+async def cmd_setcredits(ctx: commands.Context, user: discord.User, amount: int):
+    if not is_admin(ctx.author.id):
+        return await ctx.send("❌ **Access Denied**: Only the bot owner can set credits.", ephemeral=True)
+    new_bal = credits_manager.set_credits(user.id, amount)
+    embed = discord.Embed(title="💰 Credits Set", color=0x3498db)
+    embed.description = f"Set {user.mention}'s balance to **{new_bal:,} credits**."
+    await ctx.send(embed=embed)
+
+
+# 1.6 USER: TRANSFER CREDITS COMMAND
+@bot.hybrid_command(name="transfer", description="Transfer your credits to another user")
+@app_commands.describe(user="Recipient user", amount="Number of credits to transfer")
+async def cmd_transfer(ctx: commands.Context, user: discord.User, amount: int):
+    success, msg = credits_manager.transfer(ctx.author.id, user.id, amount)
+    if success:
+        embed = discord.Embed(title="💸 Credits Transferred", description=f"Transferred **{amount:,}** credits to {user.mention}!", color=0x2ecc71)
+        await ctx.send(embed=embed)
+    else:
+        await ctx.send(f"❌ Transfer failed: {msg}", ephemeral=True)
 
 
 # 2. STATUS COMMAND
@@ -293,14 +727,22 @@ async def cmd_status(ctx: commands.Context):
 @bot.hybrid_command(name="gen", description="Start generating Discord accounts")
 @app_commands.describe(amount="Number of accounts to generate (e.g. 5)", threads="Worker threads (default 1)")
 async def cmd_gen(ctx: commands.Context, amount: int = 1, threads: int = 1):
-    if not is_admin(ctx.author.id):
-        return await ctx.send("❌ **Access Denied**: You are not authorized to run this command.", ephemeral=True)
+    if amount < 1:
+        return await ctx.send("❌ Amount must be at least 1.", ephemeral=True)
+
+    # Credit affordability check
+    if not credits_manager.can_afford(ctx.author.id, amount):
+        cur_bal = credits_manager.format_credits(ctx.author.id)
+        return await ctx.send(
+            f"❌ **Insufficient Credits!** You need **{amount}** credits to generate {amount} accounts, but you only have **{cur_bal}**.\nContact the bot owner to get credits!",
+            ephemeral=True
+        )
 
     if gen_runner.is_running:
         return await ctx.send("⚠️ **Generator is already running!** Use `/stop gen` to cancel it first.", ephemeral=True)
 
-    if amount < 1:
-        return await ctx.send("❌ Amount must be at least 1.", ephemeral=True)
+    # Deduct credits (Owner/admins are untouched)
+    credits_manager.deduct_credits(ctx.author.id, amount)
 
     embed = discord.Embed(
         title="🚀 Generator Started",
@@ -738,12 +1180,19 @@ async def cmd_addproxy(ctx: commands.Context, proxy: str = None):
 
 # 12. SERVER JOINER
 @bot.hybrid_command(name="join", description="Join a Discord server with your valid/unlocked accounts")
-@app_commands.describe(invite="Server invite code or link (e.g. abcdef or discord.gg/abcdef)", limit="Maximum tokens to join")
-async def cmd_join(ctx: commands.Context, invite: str, limit: int = 5):
-    if not is_admin(ctx.author.id):
-        return await ctx.send("❌ **Access Denied**.", ephemeral=True)
+@app_commands.describe(invite="Server invite code or link (e.g. discord.gg/code)", amount="How many accounts to join (default 5)")
+async def cmd_join(ctx: commands.Context, invite: str, amount: int = 5):
+    amount = max(1, amount)
 
-    code = invite.strip().split("/")[-1]
+    # Check credits
+    if not credits_manager.can_afford(ctx.author.id, amount):
+        cur_bal = credits_manager.format_credits(ctx.author.id)
+        return await ctx.send(
+            f"❌ **Insufficient Credits!** You need **{amount}** credits to join {amount} accounts, but you have **{cur_bal}**.\nContact the bot owner to get credits!",
+            ephemeral=True
+        )
+
+    # Collect tokens
     tokens = []
     for fp in (UNLOCKED_TXT, VALID_TXT):
         if fp.exists():
@@ -752,38 +1201,43 @@ async def cmd_join(ctx: commands.Context, invite: str, limit: int = 5):
                     parts = line.strip().split(":")
                     if len(parts) >= 3:
                         tokens.append(parts[2])
-                    elif parts:
+                    elif parts and parts[0]:
                         tokens.append(parts[0])
 
     if not tokens:
-        return await ctx.send("❌ No valid or unlocked tokens found to join with.", ephemeral=True)
+        return await ctx.send("❌ No valid or unlocked accounts found in files. Generate some accounts first!", ephemeral=True)
 
-    tokens = tokens[:max(1, limit)]
-    await ctx.send(f"🚀 Attempting to join `{code}` with **{len(tokens)}** account(s)...")
+    tokens_to_use = tokens[:amount]
+    actual_count = len(tokens_to_use)
 
-    joined = 0
-    failed = 0
-    async with httpx.AsyncClient(timeout=10) as client:
-        for t in tokens:
-            try:
-                r = await client.post(
-                    f"https://discord.com/api/v9/invites/{code}",
-                    headers={"Authorization": t, "Content-Type": "application/json"},
-                    json={}
-                )
-                if r.status_code in (200, 204):
-                    joined += 1
-                else:
-                    failed += 1
-            except Exception:
-                failed += 1
-            await asyncio.sleep(1.5)
+    # Deduct credits (Owners/admins are untouched)
+    credits_manager.deduct_credits(ctx.author.id, actual_count)
 
-    embed = discord.Embed(title="🏁 Server Join Results", color=0x2ecc71 if joined > 0 else 0xe74c3c)
-    embed.add_field(name="Invite", value=f"`{code}`", inline=True)
-    embed.add_field(name="✅ Joined", value=str(joined), inline=True)
-    embed.add_field(name="❌ Failed/Captcha", value=str(failed), inline=True)
-    await ctx.send(embed=embed)
+    clean_code = clean_invite_code(invite)
+    start_embed = discord.Embed(
+        title="👥 Server Joiner Started",
+        description=f"Attempting to join **{actual_count}** account(s) into `{clean_code}`...",
+        color=0x3498db
+    )
+    start_embed.add_field(name="Target Server", value="Fetching info...", inline=True)
+    start_embed.add_field(name="Accounts", value=str(actual_count), inline=True)
+    start_embed.set_footer(text=f"Credits Remaining: {credits_manager.format_credits(ctx.author.id)}")
+    msg = await ctx.send(embed=start_embed)
+
+    results = await join_server_task(invite_code=clean_code, tokens=tokens_to_use, delay=1.2)
+
+    done_embed = discord.Embed(
+        title="🏁 Server Join Complete!",
+        color=0x2ecc71 if results.get("joined", 0) > 0 else 0xe74c3c
+    )
+    done_embed.add_field(name="Server", value=f"`{results.get('server_name')}`", inline=True)
+    done_embed.add_field(name="Invite Code", value=f"`{clean_code}`", inline=True)
+    done_embed.add_field(name="✅ Joined", value=str(results.get("joined", 0)), inline=True)
+    done_embed.add_field(name="🔒 Captcha Gated", value=str(results.get("captcha", 0)), inline=True)
+    done_embed.add_field(name="❌ Dead/Invalid", value=str(results.get("invalid", 0)), inline=True)
+    done_embed.add_field(name="⚠️ Other Failed", value=str(results.get("failed", 0)), inline=True)
+    done_embed.set_footer(text=f"Credits Remaining: {credits_manager.format_credits(ctx.author.id)}")
+    await msg.edit(embed=done_embed)
 
 
 # 13. EXPORT TOKENS
