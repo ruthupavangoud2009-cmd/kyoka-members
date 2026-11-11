@@ -115,6 +115,88 @@ def sync_env_to_configs():
         except Exception as e:
             print(f"[Config] Error syncing Unlock config: {e}")
 
+
+def update_service_key(service: str, key: str) -> bool:
+    """Dynamically set an API key or config from Discord commands."""
+    service = service.lower().strip()
+    key = key.strip()
+
+    gen_cfg_path = GEN_DIR / "config.json"
+    unlock_cfg_path = UNLOCK_DIR / "config.json"
+
+    if service in ("5sim", "fivesim"):
+        os.environ["FIVESIM_KEY"] = key
+        if unlock_cfg_path.exists():
+            with open(unlock_cfg_path, "r", encoding="utf-8") as f:
+                c = json.load(f)
+            c.setdefault("5sim", {})["api_key"] = key
+            with open(unlock_cfg_path, "w", encoding="utf-8") as f:
+                json.dump(c, f, indent=2)
+        return True
+
+    elif service in ("onyx", "onyx_key"):
+        os.environ["ONYX_KEY"] = key
+        if unlock_cfg_path.exists():
+            with open(unlock_cfg_path, "r", encoding="utf-8") as f:
+                c = json.load(f)
+            c.setdefault("captcha", {})["onyx_api_key"] = key
+            with open(unlock_cfg_path, "w", encoding="utf-8") as f:
+                json.dump(c, f, indent=2)
+        return True
+
+    elif service in ("smsbower", "bower"):
+        os.environ["SMSBOWER_KEY"] = key
+        if unlock_cfg_path.exists():
+            with open(unlock_cfg_path, "r", encoding="utf-8") as f:
+                c = json.load(f)
+            c.setdefault("smsbower", {})["api_key"] = key
+            with open(unlock_cfg_path, "w", encoding="utf-8") as f:
+                json.dump(c, f, indent=2)
+        return True
+
+    elif service in ("herosms", "hero"):
+        os.environ["HEROSMS_KEY"] = key
+        if unlock_cfg_path.exists():
+            with open(unlock_cfg_path, "r", encoding="utf-8") as f:
+                c = json.load(f)
+            c.setdefault("herosms", {})["api_key"] = key
+            with open(unlock_cfg_path, "w", encoding="utf-8") as f:
+                json.dump(c, f, indent=2)
+        return True
+
+    elif service in ("ninecaptcha", "9cap"):
+        os.environ["NINECAPTCHA_KEY"] = key
+        if gen_cfg_path.exists():
+            with open(gen_cfg_path, "r", encoding="utf-8") as f:
+                c = json.load(f)
+            c.setdefault("ninecaptcha", {})["api_key"] = key
+            c["ninecaptcha"]["enabled"] = True
+            with open(gen_cfg_path, "w", encoding="utf-8") as f:
+                json.dump(c, f, indent=4)
+        return True
+
+    elif service in ("afhamxmailz", "afham", "mail"):
+        os.environ["AFHAMXMAILZ_KEY"] = key
+        if gen_cfg_path.exists():
+            with open(gen_cfg_path, "r", encoding="utf-8") as f:
+                c = json.load(f)
+            c.setdefault("email_provider", {}).setdefault("afhamxmailz", {})["api_key"] = key
+            with open(gen_cfg_path, "w", encoding="utf-8") as f:
+                json.dump(c, f, indent=4)
+        return True
+
+    elif service in ("phone_service", "service"):
+        os.environ["PHONE_SERVICE"] = key
+        if unlock_cfg_path.exists():
+            with open(unlock_cfg_path, "r", encoding="utf-8") as f:
+                c = json.load(f)
+            c["phone_service"] = key
+            with open(unlock_cfg_path, "w", encoding="utf-8") as f:
+                json.dump(c, f, indent=2)
+        return True
+
+    return False
+
 # Run sync once at startup
 sync_env_to_configs()
 

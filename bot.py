@@ -3,6 +3,7 @@ import os
 import io
 import asyncio
 import time
+import httpx
 import discord
 from discord import app_commands
 from discord.ext import commands
@@ -12,6 +13,8 @@ from config import (
     BOT_PREFIX,
     ADMIN_USER_IDS,
     is_admin,
+    update_service_key,
+    GEN_DIR,
     PORT,
     VALID_TXT,
     LOCKED_TXT,
@@ -145,8 +148,13 @@ async def cmd_help(ctx: commands.Context):
         inline=False
     )
     embed.add_field(
-        name="📥 File Retrieval",
-        value="`/download <category>` — Download `valid`, `locked`, `unverified`, or `unlocked` tokens",
+        name="📥 File Retrieval & Formatting",
+        value="`/download <category>` — Download raw token files\n`/export <format> <category>` — Export as `tokens_only` or `combos`",
+        inline=False
+    )
+    embed.add_field(
+        name="🛠️ Management & Utilities",
+        value="`/setkey <service> <key>` — Update 5sim, onyx, afham, 9captcha keys dynamically\n`/check <category>` — Live Discord token validity checker\n`/proxies` & `/addproxy` — Check & upload proxy rotation list\n`/join <invite>` — Join a server using your generated accounts",
         inline=False
     )
     embed.add_field(
@@ -515,6 +523,221 @@ async def cmd_stop(ctx: commands.Context, target: str = "all"):
         await ctx.send(f"🛑 **Stopped task(s):** {', '.join(stopped)}.")
     else:
         await ctx.send("ℹ️ No active tasks were running.", ephemeral=True)
+
+
+# 9. SETKEY COMMAND (DYNAMIC CONFIG)
+@bot.hybrid_command(name="setkey", description="Set or update an API key dynamically (5sim, onyx, afham, 9captcha)")
+@app_commands.describe(service="Service to configure", key="API key or value")
+@app_commands.choices(service=[
+    app_commands.Choice(name="5sim SMS Key", value="5sim"),
+    app_commands.Choice(name="Onyx Captcha Key", value="onyx"),
+    app_commands.Choice(name="9captcha Key", value="ninecaptcha"),
+    app_commands.Choice(name="AfhamXMailz Key", value="afhamxmailz"),
+    app_commands.Choice(name="SMSBower Key", value="smsbower"),
+    app_commands.Choice(name="HeroSMS Key", value="herosms"),
+    app_commands.Choice(name="Active Phone Service", value="phone_service"),
+])
+async def cmd_setkey(ctx: commands.Context, service: str, key: str):
+    if not is_admin(ctx.author.id):
+        return await ctx.send("❌ **Access Denied**.", ephemeral=True)
+    ok = update_service_key(service, key)
+    if ok:
+        await ctx.send(f"✅ Successfully updated **{service}** key! It is now active.", ephemeral=True)
+    else:
+        await ctx.send(f"❌ Failed to update key for `{service}`.", ephemeral=True)
+
+
+# 10. TOKEN HEALTH CHECKER
+@bot.hybrid_command(name="check", description="Check live Discord token validity for saved accounts")
+@app_commands.describe(category="Which token list to check: valid, locked, or unlocked")
+@app_commands.choices(category=[
+    app_commands.Choice(name="Valid Accounts (valid.txt)", value="valid"),
+    app_commands.Choice(name="Unlocked Accounts (unlocked.txt)", value="unlocked"),
+    app_commands.Choice(name="Locked Accounts (locked.txt)", value="locked"),
+])
+async def cmd_check(ctx: commands.Context, category: str = "valid"):
+    if not is_admin(ctx.author.id):
+        return await ctx.send("❌ **Access Denied**.", ephemeral=True)
+
+    mapping = {
+        "valid": VALID_TXT,
+        "unlocked": UNLOCKED_TXT,
+        "locked": LOCKED_TXT
+    }
+    file_p = mapping.get(category.lower())
+    if not file_p or not file_p.exists() or file_p.stat().st_size == 0:
+        return await ctx.send(f"⚠️ No tokens in `{category}.txt` to check.", ephemeral=True)
+
+    await ctx.defer()
+    with open(file_p, "r", encoding="utf-8", errors="ignore") as f:
+        lines = [l.strip() for l in f if l.strip()]
+
+    tokens = []
+    for l in lines:
+        parts = l.split(":")
+        tokens.append(parts[2] if len(parts) >= 3 else parts[0])
+
+    alive = 0
+    phone_locked = 0
+    dead = 0
+
+    async with httpx.AsyncClient(timeout=8) as client:
+        for t in tokens[:100]:
+            try:
+                r = await client.get("https://discord.com/api/v9/users/@me", headers={"Authorization": t})
+                if r.status_code == 200:
+                    d = r.json() or {}
+                    req_act = str(d.get("required_action") or "").upper()
+                    if "PHONE" in req_act:
+                        phone_locked += 1
+                    else:
+                        alive += 1
+                elif r.status_code == 403:
+                    phone_locked += 1
+                else:
+                    dead += 1
+            except Exception:
+                dead += 1
+
+    embed = discord.Embed(title=f"🔎 Token Health Check: `{category}.txt`", color=0x3498db)
+    embed.add_field(name="Total Checked", value=str(min(len(tokens), 100)), inline=True)
+    embed.add_field(name="🟢 Alive / Working", value=str(alive), inline=True)
+    embed.add_field(name="🔒 Phone-Locked", value=str(phone_locked), inline=True)
+    embed.add_field(name="❌ Dead / Invalid", value=str(dead), inline=True)
+    await ctx.send(embed=embed)
+
+
+# 11. PROXIES STATUS & ADD
+@bot.hybrid_command(name="proxies", description="View loaded proxy statistics")
+async def cmd_proxies(ctx: commands.Context):
+    if not is_admin(ctx.author.id):
+        return await ctx.send("❌ **Access Denied**.", ephemeral=True)
+
+    proxy_file = GEN_DIR / "input" / "proxies.txt"
+    count = get_file_line_count(proxy_file)
+    embed = discord.Embed(title="🌐 Proxies Status", color=0x9b59b6)
+    embed.add_field(name="Loaded Proxies", value=str(count), inline=True)
+    embed.add_field(name="File", value="`input/proxies.txt`", inline=True)
+    embed.set_footer(text="Use /addproxy or upload a proxies.txt to add more.")
+    await ctx.send(embed=embed)
+
+
+@bot.hybrid_command(name="addproxy", description="Add proxies directly to the proxy rotation list")
+@app_commands.describe(proxy="Single proxy string (e.g. user:pass@host:port or host:port)")
+async def cmd_addproxy(ctx: commands.Context, proxy: str = None):
+    if not is_admin(ctx.author.id):
+        return await ctx.send("❌ **Access Denied**.", ephemeral=True)
+
+    proxy_file = GEN_DIR / "input" / "proxies.txt"
+    proxy_file.parent.mkdir(parents=True, exist_ok=True)
+
+    added = 0
+    if ctx.message.attachments:
+        att = ctx.message.attachments[0]
+        content = await att.read()
+        lines = content.decode("utf-8", errors="ignore").splitlines()
+        with open(proxy_file, "a", encoding="utf-8") as f:
+            for l in lines:
+                if l.strip():
+                    f.write(l.strip() + "\n")
+                    added += 1
+    elif proxy:
+        with open(proxy_file, "a", encoding="utf-8") as f:
+            f.write(proxy.strip() + "\n")
+            added = 1
+
+    total = get_file_line_count(proxy_file)
+    await ctx.send(f"✅ Added **{added}** proxy(ies). Total active proxies: **{total}**.", ephemeral=True)
+
+
+# 12. SERVER JOINER
+@bot.hybrid_command(name="join", description="Join a Discord server with your valid/unlocked accounts")
+@app_commands.describe(invite="Server invite code or link (e.g. abcdef or discord.gg/abcdef)", limit="Maximum tokens to join")
+async def cmd_join(ctx: commands.Context, invite: str, limit: int = 5):
+    if not is_admin(ctx.author.id):
+        return await ctx.send("❌ **Access Denied**.", ephemeral=True)
+
+    code = invite.strip().split("/")[-1]
+    tokens = []
+    for fp in (UNLOCKED_TXT, VALID_TXT):
+        if fp.exists():
+            with open(fp, "r", encoding="utf-8", errors="ignore") as f:
+                for line in f:
+                    parts = line.strip().split(":")
+                    if len(parts) >= 3:
+                        tokens.append(parts[2])
+                    elif parts:
+                        tokens.append(parts[0])
+
+    if not tokens:
+        return await ctx.send("❌ No valid or unlocked tokens found to join with.", ephemeral=True)
+
+    tokens = tokens[:max(1, limit)]
+    await ctx.send(f"🚀 Attempting to join `{code}` with **{len(tokens)}** account(s)...")
+
+    joined = 0
+    failed = 0
+    async with httpx.AsyncClient(timeout=10) as client:
+        for t in tokens:
+            try:
+                r = await client.post(
+                    f"https://discord.com/api/v9/invites/{code}",
+                    headers={"Authorization": t, "Content-Type": "application/json"},
+                    json={}
+                )
+                if r.status_code in (200, 204):
+                    joined += 1
+                else:
+                    failed += 1
+            except Exception:
+                failed += 1
+            await asyncio.sleep(1.5)
+
+    embed = discord.Embed(title="🏁 Server Join Results", color=0x2ecc71 if joined > 0 else 0xe74c3c)
+    embed.add_field(name="Invite", value=f"`{code}`", inline=True)
+    embed.add_field(name="✅ Joined", value=str(joined), inline=True)
+    embed.add_field(name="❌ Failed/Captcha", value=str(failed), inline=True)
+    await ctx.send(embed=embed)
+
+
+# 13. EXPORT TOKENS
+@bot.hybrid_command(name="export", description="Export tokens formatted as raw tokens or full credentials")
+@app_commands.describe(category="Token category", format="Export format")
+@app_commands.choices(category=[
+    app_commands.Choice(name="Valid Accounts", value="valid"),
+    app_commands.Choice(name="Unlocked Accounts", value="unlocked"),
+    app_commands.Choice(name="Locked Accounts", value="locked"),
+], format=[
+    app_commands.Choice(name="Tokens Only (token per line)", value="tokens_only"),
+    app_commands.Choice(name="Full Combos (email:pass:token)", value="combos"),
+])
+async def cmd_export(ctx: commands.Context, category: str = "valid", format: str = "tokens_only"):
+    if not is_admin(ctx.author.id):
+        return await ctx.send("❌ **Access Denied**.", ephemeral=True)
+
+    mapping = {"valid": VALID_TXT, "unlocked": UNLOCKED_TXT, "locked": LOCKED_TXT}
+    fp = mapping.get(category.lower())
+    if not fp or not fp.exists() or fp.stat().st_size == 0:
+        return await ctx.send(f"⚠️ No tokens in `{category}.txt` to export.", ephemeral=True)
+
+    with open(fp, "r", encoding="utf-8", errors="ignore") as f:
+        lines = [l.strip() for l in f if l.strip()]
+
+    output_lines = []
+    if format == "tokens_only":
+        for l in lines:
+            parts = l.split(":")
+            output_lines.append(parts[2] if len(parts) >= 3 else parts[0])
+    else:
+        output_lines = lines
+
+    data_bytes = "\n".join(output_lines).encode("utf-8")
+    discord_file = discord.File(io.BytesIO(data_bytes), filename=f"{category}_{format}.txt")
+    await ctx.send(
+        content=f"📤 **Exported {len(output_lines)} tokens** ({format}):",
+        file=discord_file,
+        ephemeral=True
+    )
 
 
 # ==================== MAIN LAUNCHER ====================
