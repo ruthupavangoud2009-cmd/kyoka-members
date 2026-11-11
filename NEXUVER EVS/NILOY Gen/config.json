@@ -43,7 +43,7 @@
         "max_wait": 45
     },
     "threads": 1,
-    "cooldown": 150,
+    "cooldown": 30,
     "humanizer": {
         "enabled": true,
         "name": true,

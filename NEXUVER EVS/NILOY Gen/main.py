@@ -214,6 +214,9 @@ def get_playwright_path() -> Optional[str]:
 
 
 def get_chrome_path() -> Optional[str]:
+    chrome_env = os.environ.get("CHROME_PATH")
+    if chrome_env and os.path.exists(chrome_env):
+        return chrome_env
     for p in BROWSER_CONFIG.get("chrome", {}).get("paths", []):
         if os.path.exists(p):
             return p
@@ -297,7 +300,7 @@ async def launch_browser(
         browser_args=args,
         proxy=proxy_str,
         user_data_dir=temp_profile if temp_profile else None,
-        sandbox=True
+        sandbox=False
     )
     return browser
 
@@ -2032,7 +2035,7 @@ async def fill_date_of_birth(page):
         log.debug(f"DOB error: {e}")
 
 
-async def wait_for_account_creation(page, timeout: int = 900) -> bool:
+async def wait_for_account_creation(page, timeout: int = 120) -> bool:
     deadline = time.time() + timeout
     last_url = ""
     captcha_logged = False

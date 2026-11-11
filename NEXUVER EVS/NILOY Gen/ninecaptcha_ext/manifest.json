@@ -6,7 +6,7 @@
     "content_scripts": [
         {
             "matches": [
-                "*://*.hcaptcha.com/captcha/*"
+                "*://*.hcaptcha.com/*"
             ],
             "js": [
                 "captcha/hcaptcha.js"
@@ -42,10 +42,7 @@
         },
         {
             "matches": [
-                "*://*.hcaptcha.com/captcha/*"
-            ],
-            "include_globs": [
-                "*frame=challenge*"
+                "*://*.hcaptcha.com/*"
             ],
             "js": [
                 "captcha/hook.js"
