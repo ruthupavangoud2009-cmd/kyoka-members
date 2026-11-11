@@ -32,8 +32,12 @@ from core.pipeline_runner import pipeline_runner
 from core.credits_manager import credits_manager
 from core.stock_manager import stock_manager
 from core.joiner import join_server_task, clean_invite_code, fetch_invite_guild
+from config import sync_persistent_data, DATA_PROXIES_TXT
 from web_server import start_web_server, set_bot_instance
 from keep_alive import run_keep_alive_loop
+
+# Initialize persistent files across Render reboots
+sync_persistent_data()
 
 intents = discord.Intents.default()
 intents.message_content = True
@@ -1266,19 +1270,30 @@ async def cmd_addproxy(ctx: commands.Context, proxy: str = None):
     proxy_file.parent.mkdir(parents=True, exist_ok=True)
 
     added = 0
+    new_proxy_lines = []
     if ctx.message.attachments:
         att = ctx.message.attachments[0]
         content = await att.read()
         lines = content.decode("utf-8", errors="ignore").splitlines()
-        with open(proxy_file, "a", encoding="utf-8") as f:
-            for l in lines:
-                if l.strip():
-                    f.write(l.strip() + "\n")
-                    added += 1
+        for l in lines:
+            if l.strip():
+                new_proxy_lines.append(l.strip())
+                added += 1
     elif proxy:
+        new_proxy_lines.append(proxy.strip())
+        added = 1
+
+    if new_proxy_lines:
         with open(proxy_file, "a", encoding="utf-8") as f:
-            f.write(proxy.strip() + "\n")
-            added = 1
+            for pl in new_proxy_lines:
+                f.write(pl + "\n")
+        try:
+            DATA_PROXIES_TXT.parent.mkdir(parents=True, exist_ok=True)
+            with open(DATA_PROXIES_TXT, "a", encoding="utf-8") as f:
+                for pl in new_proxy_lines:
+                    f.write(pl + "\n")
+        except Exception:
+            pass
 
     total = get_file_line_count(proxy_file)
     await ctx.send(f"✅ Added **{added}** proxy(ies). Total active proxies: **{total}**.", ephemeral=True)

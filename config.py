@@ -1,5 +1,7 @@
 import os
 import json
+import base64
+import hashlib
 from pathlib import Path
 from dotenv import load_dotenv
 
@@ -32,6 +34,118 @@ LOCKED_TXT = GEN_OUTPUT_DIR / "locked.txt"
 UNVERIFIED_TXT = GEN_OUTPUT_DIR / "unverified.txt"
 INVALID_TXT = GEN_OUTPUT_DIR / "invalid.txt"
 UNLOCKED_TXT = UNLOCK_OUTPUT_DIR / "unlocked.txt"
+
+# Persistent Storage across Cloud Reboots / Redeployments
+DATA_DIR = BASE_DIR / "data"
+DATA_DIR.mkdir(parents=True, exist_ok=True)
+DATA_STOCK_VAULT = DATA_DIR / "stock.vault"
+DATA_STOCK_TXT = DATA_DIR / "stock.txt"
+DATA_PROXIES_TXT = DATA_DIR / "proxies.txt"
+DATA_CREDITS_JSON = DATA_DIR / "credits.json"
+DATA_USAGE_JSON = DATA_DIR / "account_usage.json"
+VAULT_KEY = "kyoka_vault_salt_2026"
+
+
+def _vault_encrypt(text: str) -> str:
+    kb = hashlib.sha256(VAULT_KEY.encode()).digest()
+    db = text.encode("utf-8")
+    enc = bytes(b ^ kb[i % len(kb)] for i, b in enumerate(db))
+    return base64.b64encode(enc).decode("ascii")
+
+
+def _vault_decrypt(enc_str: str) -> str:
+    kb = hashlib.sha256(VAULT_KEY.encode()).digest()
+    enc = base64.b64decode(enc_str.strip().encode("ascii"))
+    dec = bytes(b ^ kb[i % len(kb)] for i, b in enumerate(enc))
+    return dec.decode("utf-8", errors="ignore")
+
+
+def save_stock_to_vault():
+    """Read VALID_TXT and encrypt into data/stock.vault for Git-safe persistence."""
+    try:
+        if VALID_TXT.exists() and VALID_TXT.stat().st_size > 0:
+            with open(VALID_TXT, "r", encoding="utf-8", errors="ignore") as f:
+                content = f.read()
+            if content.strip():
+                enc = _vault_encrypt(content)
+                with open(DATA_STOCK_VAULT, "w", encoding="ascii") as f:
+                    f.write(enc)
+    except Exception as e:
+        print(f"[Persistence] Failed to save vault: {e}")
+
+
+def sync_persistent_data():
+    """
+    Ensure files persist across Render restarts/re-deploys.
+    Syncs committed data/ files into runtime paths and vice-versa.
+    """
+    try:
+        # 1. Accounts: If VALID_TXT is empty/missing, restore from encrypted DATA_STOCK_VAULT
+        if DATA_STOCK_VAULT.exists() and (not VALID_TXT.exists() or VALID_TXT.stat().st_size == 0):
+            try:
+                with open(DATA_STOCK_VAULT, "r", encoding="ascii") as f:
+                    raw_enc = f.read()
+                if raw_enc.strip():
+                    decrypted = _vault_decrypt(raw_enc)
+                    with open(VALID_TXT, "w", encoding="utf-8") as f:
+                        f.write(decrypted)
+            except Exception as e:
+                print(f"[Persistence] Error restoring stock vault: {e}")
+
+        # If VALID_TXT has accounts, update the vault
+        save_stock_to_vault()
+
+        # 2. Proxies: Sync data/proxies.txt <-> GEN_DIR/input/proxies.txt
+        gen_proxy_file = GEN_DIR / "input" / "proxies.txt"
+        gen_proxy_file.parent.mkdir(parents=True, exist_ok=True)
+        seen_proxies = set()
+        all_proxies = []
+
+        for p_file in (DATA_PROXIES_TXT, gen_proxy_file):
+            if p_file.exists():
+                with open(p_file, "r", encoding="utf-8", errors="ignore") as f:
+                    for line in f:
+                        p = line.strip()
+                        if p and not p.startswith("#") and p not in seen_proxies:
+                            seen_proxies.add(p)
+                            all_proxies.append(p)
+
+        if all_proxies:
+            with open(gen_proxy_file, "w", encoding="utf-8") as f:
+                for p in all_proxies:
+                    f.write(p + "\n")
+            with open(DATA_PROXIES_TXT, "w", encoding="utf-8") as f:
+                for p in all_proxies:
+                    f.write(p + "\n")
+
+        # 3. Credits & Usage sync
+        root_credits = BASE_DIR / "credits.json"
+        if DATA_CREDITS_JSON.exists() and (not root_credits.exists() or root_credits.stat().st_size <= 2):
+            if DATA_CREDITS_JSON.stat().st_size > 2:
+                with open(DATA_CREDITS_JSON, "r", encoding="utf-8") as f:
+                    content = f.read()
+                with open(root_credits, "w", encoding="utf-8") as f:
+                    f.write(content)
+        elif root_credits.exists() and root_credits.stat().st_size > 2:
+            with open(root_credits, "r", encoding="utf-8") as f:
+                content = f.read()
+            with open(DATA_CREDITS_JSON, "w", encoding="utf-8") as f:
+                f.write(content)
+
+        root_usage = BASE_DIR / "account_usage.json"
+        if DATA_USAGE_JSON.exists() and (not root_usage.exists() or root_usage.stat().st_size <= 2):
+            if DATA_USAGE_JSON.stat().st_size > 2:
+                with open(DATA_USAGE_JSON, "r", encoding="utf-8") as f:
+                    content = f.read()
+                with open(root_usage, "w", encoding="utf-8") as f:
+                    f.write(content)
+        elif root_usage.exists() and root_usage.stat().st_size > 2:
+            with open(root_usage, "r", encoding="utf-8") as f:
+                content = f.read()
+            with open(DATA_USAGE_JSON, "w", encoding="utf-8") as f:
+                f.write(content)
+    except Exception as e:
+        print(f"[Persistence] Error syncing persistent data: {e}")
 
 
 def is_admin(user_id: int) -> bool:

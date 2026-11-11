@@ -14,3 +14,9 @@ proxies.txt
 nopecha_keys.txt
 credits.json
 account_usage.json
+
+# Track persistent data folder (vault and proxies) so Render never wipes accounts or proxies
+!data/
+!data/**
+data/*.txt
+!data/proxies.txt

@@ -54,6 +54,10 @@ class CreditsManager:
             }
             with open(self.file_path, "w", encoding="utf-8") as f:
                 json.dump(data, f, indent=2)
+            from config import DATA_CREDITS_JSON
+            DATA_CREDITS_JSON.parent.mkdir(parents=True, exist_ok=True)
+            with open(DATA_CREDITS_JSON, "w", encoding="utf-8") as f:
+                json.dump(data, f, indent=2)
         except Exception as e:
             print(f"[Credits] Failed to save credits: {e}")
 

@@ -33,6 +33,10 @@ class StockManager:
         try:
             with open(self.usage_file, "w", encoding="utf-8") as f:
                 json.dump(self._usage, f, indent=2)
+            from config import DATA_USAGE_JSON
+            DATA_USAGE_JSON.parent.mkdir(parents=True, exist_ok=True)
+            with open(DATA_USAGE_JSON, "w", encoding="utf-8") as f:
+                json.dump(self._usage, f, indent=2)
         except Exception as e:
             print(f"[StockManager] Error saving usage: {e}")
 
@@ -99,6 +103,11 @@ class StockManager:
             with open(target_file, "a", encoding="utf-8") as f:
                 for nl in new_lines_to_append:
                     f.write(nl + "\n")
+            try:
+                from config import save_stock_to_vault
+                save_stock_to_vault()
+            except Exception:
+                pass
 
         total = len(existing_lines) + added
         return added, duplicates, total
