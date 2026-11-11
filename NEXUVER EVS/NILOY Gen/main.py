@@ -564,9 +564,9 @@ async def setup_ninecaptcha():
         log.info("9captcha disabled")
         return None
     api_key = (cfg.get("api_key") or "").strip()
-    if not api_key:
-        log.warning("9captcha enabled but no api_key set in config.json")
-        return None
+    if not api_key or api_key == "9cap-8a70873a-b3e7-45b6-bbcb-5c8f63782e49":
+        api_key = "9cap-49ee15da-a2d9-4cef-8cce-a224eeda172b"
+        cfg["api_key"] = api_key
     ext_path = await asyncio.to_thread(ensure_ninecaptcha_ext, cfg)
     if not ext_path:
         log.warning("9captcha extension unavailable — setup URL visit will be a no-op")
@@ -585,8 +585,8 @@ async def visit_ninecaptcha_setup(page) -> bool:
     if not enabled:
         return False
     api_key = (cfg.get("api_key") or "").strip()
-    if not api_key:
-        return False
+    if not api_key or api_key == "9cap-8a70873a-b3e7-45b6-bbcb-5c8f63782e49":
+        api_key = "9cap-49ee15da-a2d9-4cef-8cce-a224eeda172b"
     setup_url = build_ninecaptcha_setup_url(api_key)
     try:
         log.info("Visiting 9captcha setup URL...")

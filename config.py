@@ -58,8 +58,13 @@ def sync_env_to_configs():
             if os.getenv("AFHAMXMAILZ_KEY"):
                 gen_cfg.setdefault("email_provider", {}).setdefault("afhamxmailz", {})["api_key"] = os.getenv("AFHAMXMAILZ_KEY")
                 updated = True
-            if os.getenv("NINECAPTCHA_KEY"):
-                gen_cfg.setdefault("ninecaptcha", {})["api_key"] = os.getenv("NINECAPTCHA_KEY")
+            env_9cap = (os.getenv("NINECAPTCHA_KEY") or "").strip()
+            if env_9cap and env_9cap != "9cap-8a70873a-b3e7-45b6-bbcb-5c8f63782e49":
+                gen_cfg.setdefault("ninecaptcha", {})["api_key"] = env_9cap
+                gen_cfg["ninecaptcha"]["enabled"] = True
+                updated = True
+            elif not gen_cfg.get("ninecaptcha", {}).get("api_key") or gen_cfg.get("ninecaptcha", {}).get("api_key") == "9cap-8a70873a-b3e7-45b6-bbcb-5c8f63782e49":
+                gen_cfg.setdefault("ninecaptcha", {})["api_key"] = "9cap-49ee15da-a2d9-4cef-8cce-a224eeda172b"
                 gen_cfg["ninecaptcha"]["enabled"] = True
                 updated = True
             if os.getenv("NOPECHA_KEY"):
