@@ -14,6 +14,9 @@ from config import (
     ADMIN_USER_IDS,
     is_admin,
     update_service_key,
+    update_phone_config,
+    toggle_setting,
+    get_full_config_summary,
     GEN_DIR,
     PORT,
     VALID_TXT,
@@ -63,6 +66,89 @@ class StopButtonView(discord.ui.View):
         button.label = "Task Stopped"
         await interaction.response.edit_message(view=self)
         await interaction.followup.send(f"🛑 **{self.task_type.capitalize()} task has been stopped by {interaction.user.mention}.**")
+
+
+class DashboardPanelView(discord.ui.View):
+    def __init__(self):
+        super().__init__(timeout=None)
+
+    @discord.ui.button(label="Gen 1", style=discord.ButtonStyle.primary, emoji="⚡", row=0)
+    async def btn_gen1(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if not is_admin(interaction.user.id):
+            return await interaction.response.send_message("❌ Unauthorized", ephemeral=True)
+        if gen_runner.is_running:
+            return await interaction.response.send_message("⚠️ Generator already active!", ephemeral=True)
+        await interaction.response.send_message("⚡ Starting 1 account generation...", ephemeral=True)
+        asyncio.create_task(gen_runner.start(target=1, threads=1))
+
+    @discord.ui.button(label="Gen 5", style=discord.ButtonStyle.primary, emoji="🚀", row=0)
+    async def btn_gen5(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if not is_admin(interaction.user.id):
+            return await interaction.response.send_message("❌ Unauthorized", ephemeral=True)
+        if gen_runner.is_running:
+            return await interaction.response.send_message("⚠️ Generator already active!", ephemeral=True)
+        await interaction.response.send_message("🚀 Starting 5 accounts generation...", ephemeral=True)
+        asyncio.create_task(gen_runner.start(target=5, threads=1))
+
+    @discord.ui.button(label="Unlock Locked", style=discord.ButtonStyle.success, emoji="🔓", row=0)
+    async def btn_unlock(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if not is_admin(interaction.user.id):
+            return await interaction.response.send_message("❌ Unauthorized", ephemeral=True)
+        if unlock_runner.is_running:
+            return await interaction.response.send_message("⚠️ Unlocker already active!", ephemeral=True)
+        token_lines = []
+        if LOCKED_TXT.exists():
+            with open(LOCKED_TXT, "r", encoding="utf-8", errors="ignore") as f:
+                token_lines = [l.strip() for l in f if l.strip()]
+        if not token_lines:
+            return await interaction.response.send_message("⚠️ No tokens in locked.txt to unlock.", ephemeral=True)
+        await interaction.response.send_message(f"🔓 Verifying {len(token_lines)} locked accounts...", ephemeral=True)
+        asyncio.create_task(unlock_runner.verify_tokens(token_lines, threads=5))
+
+    @discord.ui.button(label="Pipeline 5", style=discord.ButtonStyle.success, emoji="🔄", row=0)
+    async def btn_pipe(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if not is_admin(interaction.user.id):
+            return await interaction.response.send_message("❌ Unauthorized", ephemeral=True)
+        if pipeline_runner.is_running or gen_runner.is_running or unlock_runner.is_running:
+            return await interaction.response.send_message("⚠️ Another task is active!", ephemeral=True)
+        await interaction.response.send_message("🔄 Starting Auto-Pipeline for 5 accounts...", ephemeral=True)
+        asyncio.create_task(pipeline_runner.start(target=5, threads=1))
+
+    @discord.ui.button(label="Status", style=discord.ButtonStyle.secondary, emoji="📊", row=1)
+    async def btn_status(self, interaction: discord.Interaction, button: discord.ui.Button):
+        emb = discord.Embed(title="🌐 Cloud System Status", color=0x2ecc71)
+        emb.add_field(name="Uptime", value=format_uptime(), inline=True)
+        emb.add_field(name="Ping", value=f"{round(bot.latency * 1000)}ms", inline=True)
+        emb.add_field(name="Valid", value=str(get_file_line_count(VALID_TXT)), inline=True)
+        emb.add_field(name="Unlocked", value=str(get_file_line_count(UNLOCKED_TXT)), inline=True)
+        emb.add_field(name="Locked", value=str(get_file_line_count(LOCKED_TXT)), inline=True)
+        await interaction.response.send_message(embed=emb, ephemeral=True)
+
+    @discord.ui.button(label="Balances", style=discord.ButtonStyle.secondary, emoji="💳", row=1)
+    async def btn_bal(self, interaction: discord.Interaction, button: discord.ui.Button):
+        bals = unlock_runner.get_balances()
+        emb = discord.Embed(title="💳 Provider Balances", color=0xf1c40f)
+        for k, v in bals.items():
+            emb.add_field(name=k, value=f"`{v}`", inline=False)
+        await interaction.response.send_message(embed=emb, ephemeral=True)
+
+    @discord.ui.button(label="Download", style=discord.ButtonStyle.secondary, emoji="📥", row=1)
+    async def btn_dl(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if not is_admin(interaction.user.id):
+            return await interaction.response.send_message("❌ Unauthorized", ephemeral=True)
+        if not VALID_TXT.exists() or VALID_TXT.stat().st_size == 0:
+            return await interaction.response.send_message("⚠️ No valid tokens yet.", ephemeral=True)
+        f = discord.File(str(VALID_TXT), filename="valid_tokens.txt")
+        await interaction.response.send_message(file=f, ephemeral=True)
+
+    @discord.ui.button(label="Stop All", style=discord.ButtonStyle.danger, emoji="⏹️", row=1)
+    async def btn_stop(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if not is_admin(interaction.user.id):
+            return await interaction.response.send_message("❌ Unauthorized", ephemeral=True)
+        gen_runner.stop()
+        unlock_runner.stop()
+        pipeline_runner.stop()
+        await interaction.response.send_message("🛑 All tasks stopped.", ephemeral=True)
 
 
 # ==================== HELPER FUNCTIONS ====================
@@ -738,6 +824,165 @@ async def cmd_export(ctx: commands.Context, category: str = "valid", format: str
         file=discord_file,
         ephemeral=True
     )
+
+
+# 14. INTERACTIVE DASHBOARD PANEL
+@bot.hybrid_command(name="panel", description="Display the interactive Cloud Control Dashboard Panel")
+async def cmd_panel(ctx: commands.Context):
+    if not is_admin(ctx.author.id):
+        return await ctx.send("❌ **Access Denied**.", ephemeral=True)
+    embed = discord.Embed(
+        title="🎮 NEXUVER CLOUD DASHBOARD",
+        description="Click buttons below for instant 1-click execution. Runs 24/7 on Render.",
+        color=0x9b59b6
+    )
+    embed.add_field(name="⚡ Generator", value="Create accounts with auto-captcha & email verification", inline=True)
+    embed.add_field(name="🔓 Unlocker", value="Phone verify locked accounts via SMS", inline=True)
+    embed.add_field(name="🔄 Pipeline", value="Generate and automatically unlock locked accounts", inline=True)
+    embed.set_footer(text="Nexuver 24/7 Cloud Suite | Interactive Controller")
+    await ctx.send(embed=embed, view=DashboardPanelView())
+
+
+# 15. CONFIG VIEWER
+@bot.hybrid_command(name="config", description="View active configuration across Generator and Unlocker")
+async def cmd_config(ctx: commands.Context):
+    if not is_admin(ctx.author.id):
+        return await ctx.send("❌ **Access Denied**.", ephemeral=True)
+    cfg = get_full_config_summary()
+    embed = discord.Embed(title="⚙️ Active System Configuration", color=0x3498db)
+    embed.add_field(name="📧 Email Provider", value=f"`{cfg.get('email_provider')}`", inline=True)
+    embed.add_field(name="🧩 9captcha", value=f"`{cfg.get('ninecaptcha')}`", inline=True)
+    embed.add_field(name="🧩 NopeCHA", value=f"`{cfg.get('nopecha')}`", inline=True)
+    embed.add_field(name="📱 Phone Service", value=f"`{cfg.get('phone_service')}`", inline=True)
+    embed.add_field(name="🛡️ Captcha Solver", value=f"`{cfg.get('captcha_solver')}`", inline=True)
+    embed.add_field(name="🌐 Proxies", value=f"`{'Enabled' if cfg.get('proxy_enabled') else 'Disabled'}`", inline=True)
+    embed.add_field(name="👤 Humanizer", value=f"`{'Enabled' if cfg.get('humanizer_enabled') else 'Disabled'}`", inline=True)
+    embed.add_field(name="🌍 5sim Country", value=f"`{cfg.get('fivesim_country')} ({cfg.get('fivesim_operator')})`", inline=True)
+    embed.add_field(name="⏱️ Cooldown", value=f"`{cfg.get('cooldown')}s`", inline=True)
+    await ctx.send(embed=embed, ephemeral=True)
+
+
+# 16. TOGGLE FEATURES
+@bot.hybrid_command(name="toggle", description="Toggle features on/off (humanizer, hypesquad, proxies, avatar)")
+@app_commands.describe(feature="Feature to toggle", state="Enable or Disable")
+@app_commands.choices(feature=[
+    app_commands.Choice(name="Humanizer (Avatars, Bios, Names)", value="humanizer"),
+    app_commands.Choice(name="HypeSquad Badge", value="hypesquad"),
+    app_commands.Choice(name="Custom Avatars", value="avatar"),
+    app_commands.Choice(name="Proxy Rotation", value="proxy"),
+    app_commands.Choice(name="9captcha Solver", value="ninecaptcha"),
+], state=[
+    app_commands.Choice(name="Enable (ON)", value="on"),
+    app_commands.Choice(name="Disable (OFF)", value="off"),
+])
+async def cmd_toggle(ctx: commands.Context, feature: str, state: str):
+    if not is_admin(ctx.author.id):
+        return await ctx.send("❌ **Access Denied**.", ephemeral=True)
+    is_on = state.lower() == "on"
+    ok = toggle_setting(feature, is_on)
+    if ok:
+        await ctx.send(f"✅ Successfully set **{feature}** to **{'ON' if is_on else 'OFF'}**.", ephemeral=True)
+    else:
+        await ctx.send(f"❌ Failed to toggle `{feature}`.", ephemeral=True)
+
+
+# 17. PHONE CONFIGURATION
+@bot.hybrid_command(name="phone_config", description="Configure SMS service country and operator")
+@app_commands.describe(service="SMS service (5sim, smsbower, herosms, tigersms)", country="Country name or code", operator="Operator (optional, e.g. virtual51)")
+async def cmd_phone_config(ctx: commands.Context, service: str, country: str, operator: str = ""):
+    if not is_admin(ctx.author.id):
+        return await ctx.send("❌ **Access Denied**.", ephemeral=True)
+    ok = update_phone_config(service, country, operator)
+    if ok:
+        await ctx.send(f"✅ Updated **{service}** to country `{country}`" + (f" and operator `{operator}`." if operator else "."), ephemeral=True)
+    else:
+        await ctx.send(f"❌ Failed to update phone config.", ephemeral=True)
+
+
+# 18. HUMANIZE TOKENS DIRECTLY
+@bot.hybrid_command(name="humanize", description="Humanize accounts: add avatars, bios, pronouns, and HypeSquad")
+@app_commands.describe(category="Which accounts to humanize", limit="How many accounts to humanize")
+@app_commands.choices(category=[
+    app_commands.Choice(name="Valid Accounts (valid.txt)", value="valid"),
+    app_commands.Choice(name="Unlocked Accounts (unlocked.txt)", value="unlocked"),
+])
+async def cmd_humanize(ctx: commands.Context, category: str = "valid", limit: int = 5):
+    if not is_admin(ctx.author.id):
+        return await ctx.send("❌ **Access Denied**.", ephemeral=True)
+
+    fp = VALID_TXT if category == "valid" else UNLOCKED_TXT
+    if not fp.exists() or fp.stat().st_size == 0:
+        return await ctx.send(f"⚠️ No tokens in `{category}.txt`.", ephemeral=True)
+
+    await ctx.defer()
+    with open(fp, "r", encoding="utf-8", errors="ignore") as f:
+        lines = [l.strip() for l in f if l.strip()]
+
+    tokens = []
+    for l in lines:
+        parts = l.split(":")
+        tokens.append(parts[2] if len(parts) >= 3 else parts[0])
+
+    tokens = tokens[:max(1, limit)]
+    await ctx.send(f"🎭 Humanizing **{len(tokens)}** account(s)...")
+
+    if str(GEN_DIR) not in sys.path:
+        sys.path.insert(0, str(GEN_DIR))
+    try:
+        import humanizer as hz
+        import json
+        gen_cfg_path = GEN_DIR / "config.json"
+        with open(gen_cfg_path, "r", encoding="utf-8") as f:
+            cfg = json.load(f)
+
+        succ = 0
+        fail = 0
+        for idx, t in enumerate(tokens, 1):
+            try:
+                ok = await asyncio.to_thread(hz.humanize_token, token=t, proxy=None, config=cfg)
+                if ok:
+                    succ += 1
+                else:
+                    fail += 1
+            except Exception:
+                fail += 1
+            await asyncio.sleep(1.0)
+
+        embed = discord.Embed(title="🎭 Humanization Complete", color=0x2ecc71 if succ > 0 else 0xe74c3c)
+        embed.add_field(name="✅ Successful", value=str(succ), inline=True)
+        embed.add_field(name="❌ Warnings/Failed", value=str(fail), inline=True)
+        embed.add_field(name="Features Applied", value="Avatars, Bios, Pronouns, HypeSquad", inline=False)
+        await ctx.send(embed=embed)
+    except Exception as e:
+        await ctx.send(f"❌ Humanizer error: {e}")
+
+
+# 19. CLEAR TOKENS FILE
+@bot.hybrid_command(name="clear", description="Clear tokens from an output file")
+@app_commands.describe(category="Which file to clear")
+@app_commands.choices(category=[
+    app_commands.Choice(name="Invalid Accounts (invalid.txt)", value="invalid"),
+    app_commands.Choice(name="Locked Accounts (locked.txt)", value="locked"),
+    app_commands.Choice(name="Unverified Accounts (unverified.txt)", value="unverified"),
+    app_commands.Choice(name="Valid Accounts (valid.txt)", value="valid"),
+    app_commands.Choice(name="Unlocked Accounts (unlocked.txt)", value="unlocked"),
+])
+async def cmd_clear(ctx: commands.Context, category: str):
+    if not is_admin(ctx.author.id):
+        return await ctx.send("❌ **Access Denied**.", ephemeral=True)
+    mapping = {
+        "valid": VALID_TXT,
+        "unlocked": UNLOCKED_TXT,
+        "locked": LOCKED_TXT,
+        "unverified": UNVERIFIED_TXT,
+        "invalid": INVALID_TXT
+    }
+    fp = mapping.get(category.lower())
+    if fp and fp.exists():
+        open(fp, "w").close()
+        await ctx.send(f"🗑️ Cleared `{category}.txt` successfully.", ephemeral=True)
+    else:
+        await ctx.send("⚠️ File already empty.", ephemeral=True)
 
 
 # ==================== MAIN LAUNCHER ====================

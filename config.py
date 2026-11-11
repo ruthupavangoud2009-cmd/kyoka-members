@@ -197,6 +197,93 @@ def update_service_key(service: str, key: str) -> bool:
 
     return False
 
+
+def update_phone_config(service: str, country: str, operator: str = "") -> bool:
+    """Update country and operator for SMS service."""
+    service = service.lower().strip()
+    unlock_cfg_path = UNLOCK_DIR / "config.json"
+    if not unlock_cfg_path.exists():
+        return False
+    try:
+        with open(unlock_cfg_path, "r", encoding="utf-8") as f:
+            c = json.load(f)
+        if service in c:
+            if country:
+                c[service]["country"] = country
+            if operator and "operator" in c[service]:
+                c[service]["operator"] = operator
+        with open(unlock_cfg_path, "w", encoding="utf-8") as f:
+            json.dump(c, f, indent=2)
+        return True
+    except Exception:
+        return False
+
+
+def toggle_setting(feature: str, enabled: bool) -> bool:
+    """Toggle boolean settings like humanizer, proxy, hypesquad."""
+    feature = feature.lower().strip()
+    gen_cfg_path = GEN_DIR / "config.json"
+    if not gen_cfg_path.exists():
+        return False
+    try:
+        with open(gen_cfg_path, "r", encoding="utf-8") as f:
+            c = json.load(f)
+        if feature in ("humanizer", "humanize"):
+            c.setdefault("humanizer", {})["enabled"] = enabled
+        elif feature in ("hypesquad", "hype"):
+            c.setdefault("humanizer", {})["hypesquad"] = enabled
+        elif feature in ("avatar", "avatars"):
+            c.setdefault("humanizer", {})["avatar"] = enabled
+        elif feature in ("bio", "bios"):
+            c.setdefault("humanizer", {})["bio"] = enabled
+        elif feature in ("proxy", "proxies"):
+            c.setdefault("proxy", {})["enabled"] = enabled
+        elif feature in ("nopecha",):
+            c.setdefault("nopecha", {})["enabled"] = enabled
+        elif feature in ("ninecaptcha", "9cap"):
+            c.setdefault("ninecaptcha", {})["enabled"] = enabled
+        else:
+            return False
+        with open(gen_cfg_path, "w", encoding="utf-8") as f:
+            json.dump(c, f, indent=4)
+        return True
+    except Exception:
+        return False
+
+
+def get_full_config_summary() -> dict:
+    """Read both configs and return a clean dictionary for Discord embed."""
+    summary = {}
+    gen_cfg_path = GEN_DIR / "config.json"
+    unlock_cfg_path = UNLOCK_DIR / "config.json"
+
+    if gen_cfg_path.exists():
+        try:
+            with open(gen_cfg_path, "r", encoding="utf-8") as f:
+                gc = json.load(f)
+            summary["email_provider"] = gc.get("email_provider", {}).get("name", "N/A")
+            summary["ninecaptcha"] = "Enabled" if gc.get("ninecaptcha", {}).get("enabled") else "Disabled"
+            summary["nopecha"] = "Enabled" if gc.get("nopecha", {}).get("enabled") else "Disabled"
+            summary["proxy_enabled"] = bool(gc.get("proxy", {}).get("enabled", False))
+            summary["humanizer_enabled"] = bool(gc.get("humanizer", {}).get("enabled", False))
+            summary["cooldown"] = gc.get("cooldown", 90)
+            summary["threads"] = gc.get("threads", 1)
+        except Exception:
+            pass
+
+    if unlock_cfg_path.exists():
+        try:
+            with open(unlock_cfg_path, "r", encoding="utf-8") as f:
+                uc = json.load(f)
+            summary["phone_service"] = uc.get("phone_service", "5sim")
+            summary["captcha_solver"] = uc.get("captcha", {}).get("solver", "onyx")
+            summary["fivesim_country"] = uc.get("5sim", {}).get("country", "indonesia")
+            summary["fivesim_operator"] = uc.get("5sim", {}).get("operator", "virtual51")
+        except Exception:
+            pass
+
+    return summary
+
 # Run sync once at startup
 sync_env_to_configs()
 

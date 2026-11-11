@@ -13,4 +13,7 @@ psutil>=5.9.0
 urllib3>=2.0.0
 mss>=9.0.0
 playwright>=1.40.0
-
+primp>=2.0.0
+python-socks>=2.4.0
+Pillow>=10.0.0
+websockets>=12.0
