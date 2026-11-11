@@ -121,13 +121,15 @@ class DashboardPanelView(discord.ui.View):
     @discord.ui.button(label="Stock", style=discord.ButtonStyle.secondary, emoji="📦", row=0)
     async def btn_stock(self, interaction: discord.Interaction, button: discord.ui.Button):
         st = stock_manager.get_stock_summary()
-        emb = discord.Embed(title="📦 Live Account Stock (100x Multi-Use)", description="All accounts can join up to 100 servers each.", color=0x2ecc71)
-        emb.add_field(name="📦 Accounts In Stock", value=f"`{st['total_accounts']}` accounts", inline=True)
-        emb.add_field(name="👥 Member Boost Capacity", value=f"**{st['remaining_member_capacity']:,}** joins\n*(100 joins/account)*", inline=True)
-        emb.add_field(name="🚀 Max Per Server", value=f"`{st['active_accounts']}` members", inline=True)
-        emb.add_field(name="✉️ Email-Verified", value=f"`{st['valid_stock']}` accounts", inline=True)
-        emb.add_field(name="📱 Phone-Verified", value=f"`{st['unlocked_stock']}` accounts", inline=True)
-        emb.add_field(name="💎 Exchange Rate", value="**1 Credit = 1 Server Member**", inline=True)
+        emb = discord.Embed(
+            title="📦 Live Server Stock (1 Account = 100 Servers)",
+            description=(
+                f"• **Ready Server Stock:** **{st['remaining_member_capacity']:,}** Server Joins\n"
+                f"• **Unique Accounts:** `{st['total_accounts']:,}` *(1 account can join 100 servers)*\n"
+                f"• **Exchange Rate:** 1 Credit = 1 Server Member"
+            ),
+            color=0x2ecc71
+        )
         await interaction.response.send_message(embed=emb, ephemeral=True)
 
     @discord.ui.button(label="Status", style=discord.ButtonStyle.secondary, emoji="📊", row=1)
@@ -570,13 +572,15 @@ class StartPanelView(discord.ui.View):
     @discord.ui.button(label="Stock", style=discord.ButtonStyle.secondary, emoji="📦", row=0)
     async def btn_stock(self, interaction: discord.Interaction, button: discord.ui.Button):
         st = stock_manager.get_stock_summary()
-        emb = discord.Embed(title="📦 Live Account Stock (100x Multi-Use)", description="All accounts can join up to 100 servers each.", color=0x2ecc71)
-        emb.add_field(name="📦 Accounts In Stock", value=f"`{st['total_accounts']}` accounts", inline=True)
-        emb.add_field(name="👥 Member Boost Capacity", value=f"**{st['remaining_member_capacity']:,}** joins\n*(100 joins/account)*", inline=True)
-        emb.add_field(name="🚀 Max Per Server", value=f"`{st['active_accounts']}` members", inline=True)
-        emb.add_field(name="✉️ Email-Verified", value=f"`{st['valid_stock']}` accounts", inline=True)
-        emb.add_field(name="📱 Phone-Verified", value=f"`{st['unlocked_stock']}` accounts", inline=True)
-        emb.add_field(name="💎 Exchange Rate", value="**1 Credit = 1 Server Member**", inline=True)
+        emb = discord.Embed(
+            title="📦 Live Server Stock (1 Account = 100 Servers)",
+            description=(
+                f"• **Ready Server Stock:** **{st['remaining_member_capacity']:,}** Server Joins\n"
+                f"• **Unique Accounts:** `{st['total_accounts']:,}` *(1 account can join 100 servers)*\n"
+                f"• **Exchange Rate:** 1 Credit = 1 Server Member"
+            ),
+            color=0x2ecc71
+        )
         await interaction.response.send_message(embed=emb, ephemeral=True)
 
     @discord.ui.button(label="Order Members", style=discord.ButtonStyle.primary, emoji="👥", row=0)
@@ -1641,20 +1645,21 @@ async def cmd_stock(ctx: commands.Context):
     unlocked_c = st["unlocked_stock"]
 
     embed = discord.Embed(
-        title="📦 KYOKA & NEXUVER — 100x MULTI-USE STOCK SYSTEM",
+        title="📦 KYOKA & NEXUVER — 100x MULTI-SERVER STOCK SYSTEM",
         description=(
-            "**All accounts can be reused up to 100 times across different Discord servers.**\n"
-            "💎 **Exchange Rate:** `1 Credit = 1 Server Member`\n"
-            "*(Failed joins are automatically refunded so you only pay for members who actually join!)*"
+            f"⚡ **1 Account Can Join 100 Servers!**\n"
+            f"• **Ready Stock:** **{rem_cap:,}** Server Joins\n"
+            f"• **Accounts in Stock:** `{total_accs:,}` accounts\n"
+            "• **Exchange Rate:** `1 Credit = 1 Server Member`"
         ),
-        color=0x2ecc71 if total_accs > 0 else 0xe74c3c
+        color=0x2ecc71 if rem_cap > 0 else 0xe74c3c
     )
-    embed.add_field(name="📦 Accounts In Stock", value=f"**{total_accs:,}** unique accounts", inline=True)
-    embed.add_field(name="👥 Total Member Capacity", value=f"**{rem_cap:,}** member joins\n*(100 joins per account)*", inline=True)
-    embed.add_field(name="🚀 Max Per Single Server", value=f"**{active_accs:,}** members", inline=True)
-    embed.add_field(name="✉️ Email-Verified Accounts", value=f"`{valid_c:,}` accounts", inline=True)
-    embed.add_field(name="📱 Phone-Verified Accounts", value=f"`{unlocked_c:,}` accounts", inline=True)
-    embed.add_field(name="📊 Lifetime Joins Completed", value=f"`{joins_done:,}` members joined", inline=True)
+    embed.add_field(name="📦 Ready Server Joins", value=f"**{rem_cap:,}** members", inline=True)
+    embed.add_field(name="👤 Unique Accounts", value=f"**{total_accs:,}** *(×100 servers)*", inline=True)
+    embed.add_field(name="📊 Joins Performed", value=f"`{joins_done:,}` / `{total_accs * 100:,}`", inline=True)
+    embed.add_field(name="✉️ Email-Verified", value=f"`{valid_c:,}` accounts", inline=True)
+    embed.add_field(name="📱 Phone-Verified", value=f"`{unlocked_c:,}` accounts", inline=True)
+    embed.add_field(name="💎 Multi-Use Guarantee", value="**1 Account = 100 Server Joins**", inline=True)
     embed.add_field(
         name="📥 Add More Stock (.txt)",
         value=f"Upload accounts anytime with `{BOT_PREFIX}restock` (attach `.txt` file)!",

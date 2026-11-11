@@ -140,12 +140,12 @@ class StockManager:
 
     def get_available_tokens_for_server(self, invite_code: str, amount: int) -> List[str]:
         """
-        Get up to `amount` accounts that:
-        1. Have uses < MAX_USES_PER_ACCOUNT (100)
-        2. Have not already joined this specific server/invite
+        Get up to `amount` accounts. Each account can join up to 100 servers (MAX_USES_PER_ACCOUNT).
+        Prioritizes accounts that haven't joined this server yet, but falls back to all active accounts with uses < 100.
         """
         clean_code = invite_code.strip().lower()
-        eligible = []
+        eligible_fresh = []
+        eligible_fallback = []
         raw_accounts = self.get_all_raw_accounts()
 
         for raw in raw_accounts:
@@ -157,13 +157,12 @@ class StockManager:
             if uses >= MAX_USES_PER_ACCOUNT:
                 continue
 
-            if self.has_token_joined_server(tok, clean_code):
-                continue
+            if not self.has_token_joined_server(tok, clean_code):
+                eligible_fresh.append(tok)
+            else:
+                eligible_fallback.append(tok)
 
-            eligible.append(tok)
-            if len(eligible) >= amount:
-                break
-
+        eligible = (eligible_fresh + eligible_fallback)[:amount]
         return eligible
 
     def get_stock_summary(self) -> Dict[str, Any]:
@@ -213,3 +212,4 @@ class StockManager:
 
 # Global singleton instance
 stock_manager = StockManager()
+
