@@ -1,41 +1,33 @@
 {
   "proxy": "",
   "discord_timezone": "Europe/London",
-
   "phone_service": "5sim",
-
   "threads": 5,
-
   "token_file": "locked.txt",
-
   "captcha": {
     "solver": "onyx",
-    "onyx_api_key": "",
+    "onyx_api_key": "onyx_3cde241cf9224d02a95679989836a14c",
     "hcaptchasolver_api_key": "",
-    "voidsolver_api_key":""
+    "voidsolver_api_key": ""
   },
-
   "5sim": {
     "api_key": "",
     "api_url": "https://5sim.net/v1",
     "country": "indonesia",
     "operator": "virtual51"
   },
-
   "smsbower": {
     "api_key": "",
     "api_url": "https://smsbower.page/stubs/handler_api.php",
     "country": "73",
     "service": "ds"
   },
-
   "herosms": {
     "api_key": "",
     "api_url": "https://hero.sms-activate.io/stubs/handler_api.php",
     "country": "0",
     "service": "ds"
   },
-
   "tigersms": {
     "api_key": "",
     "api_url": "https://api.tiger-sms.com/stubs/handler_api.php",

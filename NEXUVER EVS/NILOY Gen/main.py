@@ -2036,7 +2036,7 @@ async def wait_for_account_creation(page, timeout: int = 900) -> bool:
     deadline = time.time() + timeout
     last_url = ""
     captcha_logged = False
-    log.info("Waiting for you to solve the captcha manually in the browser window...")
+    log.info("Waiting for captcha solve and account confirmation...")
     log.info(f"(timeout: {timeout}s)")
     while time.time() < deadline:
         await asyncio.sleep(1.0)
@@ -2058,6 +2058,54 @@ async def wait_for_account_creation(page, timeout: int = 900) -> bool:
                 if 'discord.com' in current_url and not any(s in current_url for s in skip):
                     log.success(f"Account created! Redirected to: {current_url}")
                     return True
+
+            # Also check if token is already present in browser storage or webpack
+            try:
+                found_token = await page.evaluate('''() => {
+                    try {
+                        let t = null;
+                        if (window.webpackChunkdiscord_app) {
+                            window.webpackChunkdiscord_app.push([[Math.random()], {}, (req) => {
+                                for (const m of Object.values(req.c)) {
+                                    if (m?.exports?.default?.getToken) {
+                                        t = m.exports.default.getToken();
+                                        if (t) break;
+                                    }
+                                }
+                            }]);
+                        }
+                        if (t) return t;
+                        t = window.localStorage.getItem('token');
+                        if (t) return t.replace(/^"(.*)"$/, '$1');
+                    } catch(e) {}
+                    return null;
+                }''')
+                if hasattr(found_token, 'value'):
+                    found_token = found_token.value
+                if found_token and isinstance(found_token, str) and len(found_token) > 20:
+                    log.success("Account created! Token found in browser session.")
+                    return True
+            except Exception:
+                pass
+
+            # Detect error messages early so we don't stall for 15 minutes
+            try:
+                error_msg = await page.evaluate('''() => {
+                    const errs = document.querySelectorAll('[class*="errorMessage"], [class*="error-"], [id*="error"]');
+                    for (const err of errs) {
+                        const t = (err.textContent || '').trim();
+                        if (t) return t;
+                    }
+                    return null;
+                }''')
+                if hasattr(error_msg, 'value'):
+                    error_msg = error_msg.value
+                if error_msg and any(kw in str(error_msg).lower() for kw in ['already registered', 'rate limit', 'invalid email', 'too many requests']):
+                    log.error(f"Registration error detected on page: {error_msg}")
+                    return False
+            except Exception:
+                pass
+
             try:
                 has_captcha = await page.evaluate('''() => {
                     const frames = document.querySelectorAll('iframe');
@@ -2068,8 +2116,10 @@ async def wait_for_account_creation(page, timeout: int = 900) -> bool:
                     }
                     return false;
                 }''')
+                if hasattr(has_captcha, 'value'):
+                    has_captcha = has_captcha.value
                 if has_captcha and not captcha_logged:
-                    log.info("Captcha detected — solve it manually in the browser window")
+                    log.info("Captcha detected — solving via 9captcha...")
                     captcha_logged = True
                 elif not has_captcha and captcha_logged:
                     log.success("Captcha cleared — waiting for redirect...")
@@ -2083,22 +2133,59 @@ async def wait_for_account_creation(page, timeout: int = 900) -> bool:
 
 
 async def wait_for_discord_token(page, timeout: int = 30, email: str = None, password: str = None, proxy_config: Dict = None):
-    if not email or not password:
-        log.error("Email and password required for API token fetch")
-        return None
-    await asyncio.sleep(3)
-    log.info("Fetching token via API login...")
-    for attempt in range(5):
+    # 1. First extract token directly from active browser session
+    log.info("Extracting token from browser session...")
+    for attempt in range(12):
         try:
-            token = await fetch_discord_token(email, password, proxy_config)
-            if token:
-                log.success(f"Token via API login (attempt {attempt + 1})")
+            token = await page.evaluate('''() => {
+                try {
+                    let t = null;
+                    if (window.webpackChunkdiscord_app) {
+                        window.webpackChunkdiscord_app.push([[Math.random()], {}, (req) => {
+                            for (const m of Object.values(req.c)) {
+                                if (m?.exports?.default?.getToken) {
+                                    t = m.exports.default.getToken();
+                                    if (t) break;
+                                }
+                            }
+                        }]);
+                    }
+                    if (t) return t;
+                    t = window.localStorage.getItem('token');
+                    if (t) return t.replace(/^"(.*)"$/, '$1');
+                    const iframe = document.createElement('iframe');
+                    document.head.append(iframe);
+                    const pd = Object.getOwnPropertyDescriptor(iframe.contentWindow, 'localStorage');
+                    t = pd.get.call(iframe.contentWindow).getItem('token');
+                    iframe.remove();
+                    if (t) return t.replace(/^"(.*)"$/, '$1');
+                } catch(e) {}
+                return null;
+            }''')
+            if hasattr(token, 'value'):
+                token = token.value
+            if token and isinstance(token, str) and len(token) > 20:
+                log.success("Token successfully extracted from browser session!")
                 return token
-            log.warning(f"API returned empty token (attempt {attempt + 1}/5)")
         except Exception as e:
-            log.debug(f"API login error: {e}")
-        await asyncio.sleep(3)
-    log.error("Could not obtain token via API")
+            log.debug(f"Browser token extraction attempt {attempt + 1}: {e}")
+        await asyncio.sleep(1.5)
+
+    # 2. Fallback to API login if not found in browser
+    if email and password:
+        log.info("Browser token not found immediately; falling back to API login...")
+        for attempt in range(5):
+            try:
+                token = await fetch_discord_token(email, password, proxy_config)
+                if token:
+                    log.success(f"Token via API login (attempt {attempt + 1})")
+                    return token
+                log.warning(f"API returned empty token (attempt {attempt + 1}/5)")
+            except Exception as e:
+                log.debug(f"API login error: {e}")
+            await asyncio.sleep(3)
+
+    log.error("Could not obtain token via browser or API")
     return None
 
 
@@ -2339,7 +2426,9 @@ async def worker(worker_id: int, proxy_config: Dict = None, slot: int = 1, total
 
         if browser:
             try:
-                await browser.stop()
+                stop_res = browser.stop()
+                if asyncio.iscoroutine(stop_res):
+                    await stop_res
             except Exception:
                 pass
             await asyncio.sleep(0.2)
