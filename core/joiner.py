@@ -6,12 +6,29 @@ import json
 import uuid
 import httpx
 from typing import List, Dict, Any, Optional, Callable
+from config import GEN_DIR
 
 UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0.0.0 Safari/537.36"
 
 BLOCKED_INVITE_CODES = {
     "https", "http", "discord", "discordapp", "invite", "com", "gg", "www", "ptb", "canary", "api"
 }
+
+def get_joiner_proxy() -> Optional[str]:
+    """Retrieve a random proxy if configured in proxies.txt."""
+    proxy_file = GEN_DIR / "input" / "proxies.txt"
+    if proxy_file.exists():
+        try:
+            with open(proxy_file, "r", encoding="utf-8", errors="ignore") as f:
+                lines = [l.strip() for l in f if l.strip() and not l.startswith("#")]
+            if lines:
+                p = random.choice(lines)
+                if not p.startswith(("http://", "https://", "socks5://")):
+                    p = f"http://{p}"
+                return p
+        except Exception:
+            pass
+    return None
 
 def clean_invite_code(raw_invite: str) -> str:
     """Extract clean Discord invite code from any link, path, or raw code."""
@@ -113,7 +130,12 @@ async def join_server_task(
         results["failed"] = len(tokens)
         return results
 
-    async with httpx.AsyncClient(timeout=12) as client:
+    proxy = get_joiner_proxy()
+    client_kwargs = {"timeout": 15}
+    if proxy:
+        client_kwargs["proxy"] = proxy
+
+    async with httpx.AsyncClient(**client_kwargs) as client:
         # 1. Fetch server info from invite
         try:
             inv_res = await client.get(f"https://discord.com/api/v9/invites/{code}?with_counts=true")
@@ -140,7 +162,19 @@ async def join_server_task(
                 "Authorization": t_clean,
                 "Content-Type": "application/json",
                 "User-Agent": UA,
+                "Accept": "*/*",
+                "Accept-Language": "en-US,en;q=0.9",
+                "Sec-Ch-Ua": '"Not A(Brand";v="8", "Chromium";v="132", "Google Chrome";v="132"',
+                "Sec-Ch-Ua-Mobile": "?0",
+                "Sec-Ch-Ua-Platform": '"Windows"',
+                "Sec-Fetch-Dest": "empty",
+                "Sec-Fetch-Mode": "cors",
+                "Sec-Fetch-Site": "same-origin",
+                "X-Discord-Locale": "en-US",
+                "X-Discord-Timezone": "America/New_York",
                 "X-Super-Properties": sprops,
+                "Origin": "https://discord.com",
+                "Referer": f"https://discord.com/invite/{code}",
             }
 
             status = "failed"
