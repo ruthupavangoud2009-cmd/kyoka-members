@@ -31,7 +31,7 @@ from core.unlock_runner import unlock_runner
 from core.pipeline_runner import pipeline_runner
 from core.credits_manager import credits_manager
 from core.stock_manager import stock_manager
-from core.joiner import join_server_task, clean_invite_code
+from core.joiner import join_server_task, clean_invite_code, fetch_invite_guild
 from web_server import start_web_server, set_bot_instance
 from keep_alive import run_keep_alive_loop
 
@@ -1304,6 +1304,25 @@ async def cmd_join(ctx: commands.Context, invite: str, amount: int = 5, delay: f
         )
 
     clean_code = clean_invite_code(invite)
+    if not clean_code:
+        return await ctx.send(
+            "❌ **Invalid Discord Invite!**\n"
+            "Please provide a valid server invite link or code (e.g. `discord.gg/yourcode` or `https://discord.gg/yourcode`).\n"
+            "✨ *No credits were deducted.*",
+            ephemeral=True
+        )
+
+    # Pre-validate invite with Discord API to prevent joining wrong or dead servers
+    guild_info = await fetch_invite_guild(clean_code)
+    if not guild_info:
+        return await ctx.send(
+            f"❌ **Invite Not Found or Expired!**\n"
+            f"Discord could not find an active server for `{clean_code}`. Make sure the invite link hasn't expired.\n"
+            f"✨ *No credits were deducted.*",
+            ephemeral=True
+        )
+
+    server_name = guild_info.get("guild_name", "Discord Server")
 
     # Collect tokens that haven't joined this server yet and haven't hit 100 uses
     tokens_to_use = stock_manager.get_available_tokens_for_server(clean_code, amount)
@@ -1311,7 +1330,7 @@ async def cmd_join(ctx: commands.Context, invite: str, amount: int = 5, delay: f
         st = stock_manager.get_stock_summary()
         return await ctx.send(
             f"❌ **No Available Accounts for this Server!**\n"
-            f"All **{st['total_accounts']}** accounts in stock have either already joined `{clean_code}` or have reached their 100-server limit.\n"
+            f"All **{st['total_accounts']}** accounts in stock have either already joined **{server_name}** (`{clean_code}`) or reached their 100-server limit.\n"
             f"Use `{BOT_PREFIX}restock` to add more accounts!",
             ephemeral=True
         )
@@ -1319,7 +1338,7 @@ async def cmd_join(ctx: commands.Context, invite: str, amount: int = 5, delay: f
     actual_count = len(tokens_to_use)
     if actual_count < amount:
         await ctx.send(
-            f"ℹ️ **Note:** You requested **{amount}** members, but only **{actual_count}** accounts in stock have not joined `{clean_code}` yet. Proceeding with **{actual_count}** members.",
+            f"ℹ️ **Note:** You requested **{amount}** members, but only **{actual_count}** accounts in stock have not joined **{server_name}** yet. Proceeding with **{actual_count}** members.",
             ephemeral=True
         )
 
@@ -1329,18 +1348,22 @@ async def cmd_join(ctx: commands.Context, invite: str, amount: int = 5, delay: f
     start_embed = discord.Embed(
         title="👥 Server Joiner Started",
         description=(
-            f"Attempting to join **{actual_count}** account(s) into `{clean_code}` (pacing: ~{delay}s)...\n"
+            f"Attempting to join **{actual_count}** account(s) into **{server_name}** (`{clean_code}`) with ~{delay}s delay...\n"
             "💎 **Guarantee:** `1 Credit = 1 Member Joined`. Any failed joins are automatically refunded!"
         ),
         color=0x3498db
     )
-    start_embed.add_field(name="Target Server", value="Connecting...", inline=True)
+    start_embed.add_field(name="Target Server", value=f"**{server_name}**", inline=True)
     start_embed.add_field(name="Accounts Ordered", value=str(actual_count), inline=True)
     start_embed.add_field(name="Paced Delay", value=f"~{delay}s", inline=True)
     start_embed.set_footer(text=f"Credits Remaining: {credits_manager.format_credits(ctx.author.id)}")
     msg = await ctx.send(embed=start_embed)
 
-    results = await join_server_task(invite_code=clean_code, tokens=tokens_to_use, delay=delay)
+    try:
+        results = await join_server_task(invite_code=clean_code, tokens=tokens_to_use, delay=delay)
+    except Exception as e:
+        credits_manager.refund_credits(ctx.author.id, actual_count)
+        return await ctx.send(f"❌ Join error encountered: {e}. All {actual_count} credits refunded.", ephemeral=True)
 
     joined_count = results.get("joined", 0)
     failed_count = actual_count - joined_count
@@ -1355,20 +1378,27 @@ async def cmd_join(ctx: commands.Context, invite: str, amount: int = 5, delay: f
     if joined_count > 0:
         credits_manager.record_members_joined(ctx.author.id, joined_count)
 
+    resolved_server_name = results.get("server_name") or server_name
     done_embed = discord.Embed(
         title="🏁 Server Join Complete!",
         description=f"Exchange Result: **{joined_count}** server member(s) joined successfully.",
         color=0x2ecc71 if joined_count > 0 else 0xe74c3c
     )
-    done_embed.add_field(name="Server", value=f"`{results.get('server_name')}`", inline=True)
+    done_embed.add_field(name="Server", value=f"`{resolved_server_name}`", inline=True)
     done_embed.add_field(name="Invite Code", value=f"`{clean_code}`", inline=True)
     done_embed.add_field(name="✅ Joined", value=f"**{joined_count}** members", inline=True)
     done_embed.add_field(name="🔒 Captcha Gated", value=str(results.get("captcha", 0)), inline=True)
     done_embed.add_field(name="❌ Dead/Invalid", value=str(results.get("invalid", 0)), inline=True)
     done_embed.add_field(name="⚠️ Other Failed", value=str(results.get("failed", 0)), inline=True)
+
+    if joined_count == 0:
+        credit_details = f"• Refunded: `{actual_count}` (100% full refund)\n• Deducted: `0`\n• Your Balance: `{credits_manager.format_credits(ctx.author.id)}`"
+    else:
+        credit_details = f"• Deducted: `{joined_count}`\n• Refunded: `{failed_count}`\n• Your Balance: `{credits_manager.format_credits(ctx.author.id)}`"
+
     done_embed.add_field(
         name="💰 Credits Summary",
-        value=f"• Deducted: `{joined_count}`\n• Refunded: `{failed_count}`\n• Your Balance: `{credits_manager.format_credits(ctx.author.id)}`",
+        value=credit_details,
         inline=False
     )
     done_embed.set_footer(text="1 Credit = 1 Member Guarantee • Kyoka Cloud Suite")

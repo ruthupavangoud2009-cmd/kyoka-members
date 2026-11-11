@@ -9,18 +9,62 @@ from typing import List, Dict, Any, Optional, Callable
 
 UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0.0.0 Safari/537.36"
 
+BLOCKED_INVITE_CODES = {
+    "https", "http", "discord", "discordapp", "invite", "com", "gg", "www", "ptb", "canary", "api"
+}
+
 def clean_invite_code(raw_invite: str) -> str:
     """Extract clean Discord invite code from any link, path, or raw code."""
-    raw = raw_invite.strip()
-    m = re.search(r"(?:https?://)?(?:www\.)?(?:discord\.gg/|discord\.com/invite/|discordapp\.com/invite/)([a-zA-Z0-9-]+)", raw, re.IGNORECASE)
+    if not raw_invite:
+        return ""
+    raw = raw_invite.strip().strip("<>\"'`()[]{} \t\r\n")
+    # Match standard discord invite URLs: discord.gg/CODE or discord.com/invite/CODE
+    m = re.search(
+        r"(?:https?://)?(?:[a-zA-Z0-9-]+\.)?(?:discord\.gg/|discord\.com/invite/|discordapp\.com/invite/)([a-zA-Z0-9-]+)",
+        raw,
+        re.IGNORECASE
+    )
     if m:
-        return m.group(1).strip()
-    if "/" in raw:
+        code = m.group(1).strip()
+    elif "/" in raw:
         part = raw.rstrip("/").split("/")[-1]
         part = part.split("?")[0].split("#")[0]
-        if part:
-            return part.strip()
-    return raw.strip()
+        code = part.strip()
+    else:
+        code = raw.split("?")[0].split("#")[0].strip()
+
+    if (
+        code.lower() in BLOCKED_INVITE_CODES
+        or "." in code
+        or "/" in code
+        or len(code) < 2
+        or code.lower().startswith("http")
+    ):
+        return ""
+    return code
+
+
+async def fetch_invite_guild(raw_invite: str) -> Optional[Dict[str, Any]]:
+    """Fetch guild metadata from Discord invite code."""
+    code = clean_invite_code(raw_invite)
+    if not code:
+        return None
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            r = await client.get(f"https://discord.com/api/v9/invites/{code}?with_counts=true")
+            if r.status_code == 200:
+                data = r.json()
+                guild = data.get("guild", {})
+                return {
+                    "code": code,
+                    "guild_id": guild.get("id"),
+                    "guild_name": guild.get("name", "Discord Server"),
+                    "approximate_member_count": data.get("approximate_member_count", 0),
+                    "approximate_presence_count": data.get("approximate_presence_count", 0),
+                }
+    except Exception:
+        pass
+    return None
 
 
 def make_sprops():
@@ -53,7 +97,7 @@ async def join_server_task(
     sprops = make_sprops()
 
     results = {
-        "invite": code,
+        "invite": code or invite_code,
         "server_name": "Unknown",
         "total": len(tokens),
         "joined": 0,
@@ -63,6 +107,11 @@ async def join_server_task(
         "failed": 0,
         "successful_tokens": [],
     }
+
+    if not code:
+        results["server_name"] = "Invalid/Malformed Invite"
+        results["failed"] = len(tokens)
+        return results
 
     async with httpx.AsyncClient(timeout=12) as client:
         # 1. Fetch server info from invite
