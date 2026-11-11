@@ -1286,9 +1286,14 @@ async def cmd_addproxy(ctx: commands.Context, proxy: str = None):
 
 # 12. SERVER JOINER
 @bot.hybrid_command(name="join", description="Join a Discord server with your valid/unlocked accounts")
-@app_commands.describe(invite="Server invite code or link (e.g. discord.gg/code)", amount="How many accounts to join (default 5)")
-async def cmd_join(ctx: commands.Context, invite: str, amount: int = 5):
+@app_commands.describe(
+    invite="Server invite code or link (e.g. discord.gg/code)",
+    amount="How many accounts to join (default 5)",
+    delay="Seconds delay between joins (default 2.5)"
+)
+async def cmd_join(ctx: commands.Context, invite: str, amount: int = 5, delay: float = 2.5):
     amount = max(1, amount)
+    delay = max(1.0, min(delay, 30.0))
 
     # Check credits
     if not credits_manager.can_afford(ctx.author.id, amount):
@@ -1324,17 +1329,18 @@ async def cmd_join(ctx: commands.Context, invite: str, amount: int = 5):
     start_embed = discord.Embed(
         title="👥 Server Joiner Started",
         description=(
-            f"Attempting to join **{actual_count}** account(s) into `{clean_code}`...\n"
+            f"Attempting to join **{actual_count}** account(s) into `{clean_code}` (pacing: ~{delay}s)...\n"
             "💎 **Guarantee:** `1 Credit = 1 Member Joined`. Any failed joins are automatically refunded!"
         ),
         color=0x3498db
     )
     start_embed.add_field(name="Target Server", value="Connecting...", inline=True)
     start_embed.add_field(name="Accounts Ordered", value=str(actual_count), inline=True)
+    start_embed.add_field(name="Paced Delay", value=f"~{delay}s", inline=True)
     start_embed.set_footer(text=f"Credits Remaining: {credits_manager.format_credits(ctx.author.id)}")
     msg = await ctx.send(embed=start_embed)
 
-    results = await join_server_task(invite_code=clean_code, tokens=tokens_to_use, delay=1.2)
+    results = await join_server_task(invite_code=clean_code, tokens=tokens_to_use, delay=delay)
 
     joined_count = results.get("joined", 0)
     failed_count = actual_count - joined_count
@@ -1570,10 +1576,14 @@ async def cmd_clear(ctx: commands.Context, category: str):
 
 # 20. ORDER / BOOST / EXCHANGE (1 CREDIT = 1 MEMBER)
 @bot.hybrid_command(name="order", aliases=["boost", "exchange"], description="Exchange credits for Discord server members (1 Credit = 1 Member)")
-@app_commands.describe(invite="Discord server invite code or link (e.g. discord.gg/example or example)", amount="Number of server members to order")
-async def cmd_order(ctx: commands.Context, invite: str, amount: int = 1):
+@app_commands.describe(
+    invite="Discord server invite code or link (e.g. discord.gg/example or example)",
+    amount="Number of server members to order",
+    delay="Seconds delay between joins (default 2.5)"
+)
+async def cmd_order(ctx: commands.Context, invite: str, amount: int = 1, delay: float = 2.5):
     """Convenient alias for cmd_join with 1 credit = 1 member guarantee."""
-    await cmd_join(ctx, invite=invite, amount=amount)
+    await cmd_join(ctx, invite=invite, amount=amount, delay=delay)
 
 
 # 20. RESTOCK / IMPORT ACCOUNTS (TXT FILE OR TEXT)

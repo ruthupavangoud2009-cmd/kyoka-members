@@ -1,5 +1,6 @@
 import asyncio
 import re
+import random
 import base64
 import json
 import uuid
@@ -9,13 +10,17 @@ from typing import List, Dict, Any, Optional, Callable
 UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0.0.0 Safari/537.36"
 
 def clean_invite_code(raw_invite: str) -> str:
-    """Extract the clean invite code from full URLs or raw codes."""
+    """Extract clean Discord invite code from any link, path, or raw code."""
     raw = raw_invite.strip()
-    # Match discord.gg/CODE or discord.com/invite/CODE
-    m = re.search(r"(?:discord\.gg/|discord\.com/invite/|discordapp\.com/invite/)?([a-zA-Z0-9-]+)", raw)
+    m = re.search(r"(?:https?://)?(?:www\.)?(?:discord\.gg/|discord\.com/invite/|discordapp\.com/invite/)([a-zA-Z0-9-]+)", raw, re.IGNORECASE)
     if m:
-        return m.group(1)
-    return raw
+        return m.group(1).strip()
+    if "/" in raw:
+        part = raw.rstrip("/").split("/")[-1]
+        part = part.split("?")[0].split("#")[0]
+        if part:
+            return part.strip()
+    return raw.strip()
 
 
 def make_sprops():
@@ -76,10 +81,11 @@ async def join_server_task(
 
         # 2. Iterate through tokens
         for idx, token in enumerate(tokens, 1):
-            t_clean = token.strip()
+            t_clean = token.strip().strip('"').strip("'")
             if ":" in t_clean:
                 parts = t_clean.split(":")
                 t_clean = parts[2] if len(parts) >= 3 else parts[0]
+                t_clean = t_clean.strip().strip('"').strip("'")
 
             headers = {
                 "Authorization": t_clean,
@@ -93,7 +99,7 @@ async def join_server_task(
                 r = await client.post(
                     f"https://discord.com/api/v9/invites/{code}",
                     headers=headers,
-                    json={},
+                    json={"session_id": uuid.uuid4().hex},
                 )
 
                 if r.status_code in (200, 204):
@@ -137,7 +143,8 @@ async def join_server_task(
                     pass
 
             if idx < len(tokens):
-                await asyncio.sleep(delay)
+                actual_delay = max(1.0, delay) + random.uniform(0.3, 0.9)
+                await asyncio.sleep(actual_delay)
 
     return results
 
