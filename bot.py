@@ -30,6 +30,7 @@ from core.gen_runner import gen_runner
 from core.unlock_runner import unlock_runner
 from core.pipeline_runner import pipeline_runner
 from core.credits_manager import credits_manager
+from core.stock_manager import stock_manager
 from core.joiner import join_server_task, clean_invite_code
 from web_server import start_web_server, set_bot_instance
 from keep_alive import run_keep_alive_loop
@@ -119,14 +120,14 @@ class DashboardPanelView(discord.ui.View):
 
     @discord.ui.button(label="Stock", style=discord.ButtonStyle.secondary, emoji="📦", row=0)
     async def btn_stock(self, interaction: discord.Interaction, button: discord.ui.Button):
-        valid_c = get_file_line_count(VALID_TXT)
-        unlocked_c = get_file_line_count(UNLOCKED_TXT)
-        total = valid_c + unlocked_c
-        emb = discord.Embed(title="📦 Live Account Stock", description="Ready for member server boosting.", color=0x2ecc71)
-        emb.add_field(name="📱 Phone-Verified", value=f"`{unlocked_c}` accounts", inline=True)
-        emb.add_field(name="✉️ Email-Verified", value=f"`{valid_c}` accounts", inline=True)
-        emb.add_field(name="🔥 Ready Stock", value=f"`{total}` accounts", inline=True)
-        emb.add_field(name="💎 Exchange Rate", value="**1 Credit = 1 Server Member**", inline=False)
+        st = stock_manager.get_stock_summary()
+        emb = discord.Embed(title="📦 Live Account Stock (100x Multi-Use)", description="All accounts can join up to 100 servers each.", color=0x2ecc71)
+        emb.add_field(name="📦 Accounts In Stock", value=f"`{st['total_accounts']}` accounts", inline=True)
+        emb.add_field(name="👥 Member Boost Capacity", value=f"**{st['remaining_member_capacity']:,}** joins\n*(100 joins/account)*", inline=True)
+        emb.add_field(name="🚀 Max Per Server", value=f"`{st['active_accounts']}` members", inline=True)
+        emb.add_field(name="✉️ Email-Verified", value=f"`{st['valid_stock']}` accounts", inline=True)
+        emb.add_field(name="📱 Phone-Verified", value=f"`{st['unlocked_stock']}` accounts", inline=True)
+        emb.add_field(name="💎 Exchange Rate", value="**1 Credit = 1 Server Member**", inline=True)
         await interaction.response.send_message(embed=emb, ephemeral=True)
 
     @discord.ui.button(label="Status", style=discord.ButtonStyle.secondary, emoji="📊", row=1)
@@ -336,6 +337,16 @@ def get_help_embed(category: str, user_id: int) -> discord.Embed:
                 "• **Supports:** Full invite links (`discord.gg/code`) or raw codes (`code`).\n"
                 f"• *Example:* `{BOT_PREFIX}order discord.gg/example 10`"
             ),
+            inline=False
+        )
+        embed.add_field(
+            name=f"`{BOT_PREFIX}stock`",
+            value="View live accounts ready in stock, lifetime joins, and 100x member boost capacity.",
+            inline=False
+        )
+        embed.add_field(
+            name=f"`{BOT_PREFIX}restock [attach .txt file]` *(or {BOT_PREFIX}addstock)*",
+            value="Upload accounts via `.txt` file attachment (`email:pass:token` or tokens) to add directly to stock.",
             inline=False
         )
         embed.add_field(
@@ -558,14 +569,14 @@ class StartPanelView(discord.ui.View):
 
     @discord.ui.button(label="Stock", style=discord.ButtonStyle.secondary, emoji="📦", row=0)
     async def btn_stock(self, interaction: discord.Interaction, button: discord.ui.Button):
-        valid_c = get_file_line_count(VALID_TXT)
-        unlocked_c = get_file_line_count(UNLOCKED_TXT)
-        total = valid_c + unlocked_c
-        emb = discord.Embed(title="📦 Live Account Stock", description="Ready for member server boosting.", color=0x2ecc71)
-        emb.add_field(name="📱 Phone-Verified", value=f"`{unlocked_c}` accounts", inline=True)
-        emb.add_field(name="✉️ Email-Verified", value=f"`{valid_c}` accounts", inline=True)
-        emb.add_field(name="🔥 Ready Stock", value=f"`{total}` accounts", inline=True)
-        emb.add_field(name="💎 Exchange Rate", value="**1 Credit = 1 Server Member**", inline=False)
+        st = stock_manager.get_stock_summary()
+        emb = discord.Embed(title="📦 Live Account Stock (100x Multi-Use)", description="All accounts can join up to 100 servers each.", color=0x2ecc71)
+        emb.add_field(name="📦 Accounts In Stock", value=f"`{st['total_accounts']}` accounts", inline=True)
+        emb.add_field(name="👥 Member Boost Capacity", value=f"**{st['remaining_member_capacity']:,}** joins\n*(100 joins/account)*", inline=True)
+        emb.add_field(name="🚀 Max Per Server", value=f"`{st['active_accounts']}` members", inline=True)
+        emb.add_field(name="✉️ Email-Verified", value=f"`{st['valid_stock']}` accounts", inline=True)
+        emb.add_field(name="📱 Phone-Verified", value=f"`{st['unlocked_stock']}` accounts", inline=True)
+        emb.add_field(name="💎 Exchange Rate", value="**1 Credit = 1 Server Member**", inline=True)
         await interaction.response.send_message(embed=emb, ephemeral=True)
 
     @discord.ui.button(label="Order Members", style=discord.ButtonStyle.primary, emoji="👥", row=0)
@@ -1283,28 +1294,29 @@ async def cmd_join(ctx: commands.Context, invite: str, amount: int = 5):
             ephemeral=True
         )
 
-    # Collect tokens
-    tokens = []
-    for fp in (UNLOCKED_TXT, VALID_TXT):
-        if fp.exists():
-            with open(fp, "r", encoding="utf-8", errors="ignore") as f:
-                for line in f:
-                    parts = line.strip().split(":")
-                    if len(parts) >= 3:
-                        tokens.append(parts[2])
-                    elif parts and parts[0]:
-                        tokens.append(parts[0])
+    clean_code = clean_invite_code(invite)
 
-    if not tokens:
-        return await ctx.send("❌ No valid or unlocked accounts found in files. Generate some accounts first!", ephemeral=True)
+    # Collect tokens that haven't joined this server yet and haven't hit 100 uses
+    tokens_to_use = stock_manager.get_available_tokens_for_server(clean_code, amount)
+    if not tokens_to_use:
+        st = stock_manager.get_stock_summary()
+        return await ctx.send(
+            f"❌ **No Available Accounts for this Server!**\n"
+            f"All **{st['total_accounts']}** accounts in stock have either already joined `{clean_code}` or have reached their 100-server limit.\n"
+            f"Use `{BOT_PREFIX}restock` to add more accounts!",
+            ephemeral=True
+        )
 
-    tokens_to_use = tokens[:amount]
     actual_count = len(tokens_to_use)
+    if actual_count < amount:
+        await ctx.send(
+            f"ℹ️ **Note:** You requested **{amount}** members, but only **{actual_count}** accounts in stock have not joined `{clean_code}` yet. Proceeding with **{actual_count}** members.",
+            ephemeral=True
+        )
 
     # Deduct credits (Owners/admins are untouched)
     credits_manager.deduct_credits(ctx.author.id, actual_count)
 
-    clean_code = clean_invite_code(invite)
     start_embed = discord.Embed(
         title="👥 Server Joiner Started",
         description=(
@@ -1322,6 +1334,10 @@ async def cmd_join(ctx: commands.Context, invite: str, amount: int = 5):
 
     joined_count = results.get("joined", 0)
     failed_count = actual_count - joined_count
+
+    # Record usage for successful tokens (up to 100 uses per account)
+    for tok in results.get("successful_tokens", []):
+        stock_manager.record_join(tok, clean_code)
 
     # 1 Credit = 1 Member Rule: Refund failed joins & record successful ones
     if failed_count > 0:
@@ -1556,43 +1572,92 @@ async def cmd_order(ctx: commands.Context, invite: str, amount: int = 1):
     await cmd_join(ctx, invite=invite, amount=amount)
 
 
+# 20. RESTOCK / IMPORT ACCOUNTS (TXT FILE OR TEXT)
+@bot.hybrid_command(name="restock", aliases=["addstock", "importstock", "loadstock"], description="Add accounts to stock via .txt file attachment or text")
+@app_commands.describe(file="Text file (.txt) with accounts (email:pass:token or token per line)", accounts="Or paste accounts directly")
+async def cmd_restock(ctx: commands.Context, file: Optional[discord.Attachment] = None, accounts: Optional[str] = None):
+    if not is_admin(ctx.author.id):
+        return await ctx.send("❌ **Access Denied.** Only bot admins/owners can restock accounts.", ephemeral=True)
+
+    raw_data = ""
+    if file:
+        try:
+            content_bytes = await file.read()
+            raw_data = content_bytes.decode("utf-8", errors="ignore")
+        except Exception as e:
+            return await ctx.send(f"❌ Failed to read attached file: {e}", ephemeral=True)
+    elif accounts:
+        raw_data = accounts
+    elif ctx.message.attachments:
+        try:
+            content_bytes = await ctx.message.attachments[0].read()
+            raw_data = content_bytes.decode("utf-8", errors="ignore")
+        except Exception as e:
+            return await ctx.send(f"❌ Failed to read attachment: {e}", ephemeral=True)
+    else:
+        return await ctx.send(
+            "❌ **No accounts provided!**\n"
+            "Please attach a `.txt` file containing accounts or paste them.\n"
+            f"*Example:* `{BOT_PREFIX}restock` (with `.txt` file attached) or `{BOT_PREFIX}restock accounts:email:pass:token`",
+            ephemeral=True
+        )
+
+    added, duplicates, total = stock_manager.add_accounts(raw_data, VALID_TXT)
+    if added == 0 and duplicates == 0:
+        return await ctx.send("❌ No valid tokens found in the provided input. Each line should contain `email:pass:token` or a Discord token.", ephemeral=True)
+
+    st = stock_manager.get_stock_summary()
+    embed = discord.Embed(
+        title="📦 Accounts Restocked Successfully!",
+        description="Your accounts have been added to the stock file and are ready to join servers immediately.",
+        color=0x2ecc71
+    )
+    embed.add_field(name="✅ Accounts Added", value=f"`+{added:,}` accounts", inline=True)
+    embed.add_field(name="🔁 Duplicates Skipped", value=f"`{duplicates:,}` accounts", inline=True)
+    embed.add_field(name="📦 Total Accounts in Stock", value=f"**{total:,}** accounts", inline=True)
+    embed.add_field(
+        name="👥 Total Member Capacity (100x Multi-Use)",
+        value=f"**{st['remaining_member_capacity']:,}** Server Member Joins\n*(Each account can be used up to 100 times across different servers!)*",
+        inline=False
+    )
+    embed.add_field(
+        name="🚀 Max Per Single Server",
+        value=f"**{st['active_accounts']:,}** members",
+        inline=True
+    )
+    embed.set_footer(text=f"Ready for {BOT_PREFIX}order and {BOT_PREFIX}join")
+    await ctx.send(embed=embed)
+
+
 # 21. STOCK SYSTEM (LIVE AVAILABLE ACCOUNTS)
 @bot.hybrid_command(name="stock", description="Check live stock of accounts ready to join servers")
 async def cmd_stock(ctx: commands.Context):
-    valid_c = get_file_line_count(VALID_TXT)
-    unlocked_c = get_file_line_count(UNLOCKED_TXT)
-    locked_c = get_file_line_count(LOCKED_TXT)
-    unverified_c = get_file_line_count(UNVERIFIED_TXT)
-    total_ready = valid_c + unlocked_c
-    total_all = total_ready + locked_c + unverified_c
-
-    if total_all > 0:
-        filled = int((total_ready / total_all) * 10)
-        bar = "█" * filled + "░" * (10 - filled)
-        pct = int((total_ready / total_all) * 100)
-    else:
-        bar = "░" * 10
-        pct = 0
+    st = stock_manager.get_stock_summary()
+    total_accs = st["total_accounts"]
+    rem_cap = st["remaining_member_capacity"]
+    active_accs = st["active_accounts"]
+    joins_done = st["total_joins_performed"]
+    valid_c = st["valid_stock"]
+    unlocked_c = st["unlocked_stock"]
 
     embed = discord.Embed(
-        title="📦 KYOKA & NEXUVER — LIVE STOCK SYSTEM",
+        title="📦 KYOKA & NEXUVER — 100x MULTI-USE STOCK SYSTEM",
         description=(
-            "**All accounts ready for server joining and member boosting.**\n"
+            "**All accounts can be reused up to 100 times across different Discord servers.**\n"
             "💎 **Exchange Rate:** `1 Credit = 1 Server Member`\n"
             "*(Failed joins are automatically refunded so you only pay for members who actually join!)*"
         ),
-        color=0x2ecc71 if total_ready > 0 else 0xe74c3c
+        color=0x2ecc71 if total_accs > 0 else 0xe74c3c
     )
-    embed.add_field(name="📱 Phone-Verified Stock", value=f"**{unlocked_c:,}** accounts *(SMS Verified)*", inline=True)
-    embed.add_field(name="✉️ Email-Verified Stock", value=f"**{valid_c:,}** accounts *(Email Verified)*", inline=True)
-    embed.add_field(name="🔥 Total Ready Members", value=f"**{total_ready:,} Members Ready**", inline=False)
-    embed.add_field(name="📊 Stock Readiness", value=f"`[{bar}]` **{pct}%** ready", inline=False)
+    embed.add_field(name="📦 Accounts In Stock", value=f"**{total_accs:,}** unique accounts", inline=True)
+    embed.add_field(name="👥 Total Member Capacity", value=f"**{rem_cap:,}** member joins\n*(100 joins per account)*", inline=True)
+    embed.add_field(name="🚀 Max Per Single Server", value=f"**{active_accs:,}** members", inline=True)
+    embed.add_field(name="✉️ Email-Verified Accounts", value=f"`{valid_c:,}` accounts", inline=True)
+    embed.add_field(name="📱 Phone-Verified Accounts", value=f"`{unlocked_c:,}` accounts", inline=True)
+    embed.add_field(name="📊 Lifetime Joins Completed", value=f"`{joins_done:,}` members joined", inline=True)
     embed.add_field(
-        name="⚙️ 24/7 Cloud Restocker",
-        value=(
-            f"• State: `{'🟢 Active (Restocking 24/7)' if gen_runner.autogen_enabled else '⚪ Idle'}`\n"
-            f"• Produced in Background: `{gen_runner.autogen_total_produced:,} accounts`"
-        ),
+        name="📥 Add More Stock (.txt)",
+        value=f"Upload accounts anytime with `{BOT_PREFIX}restock` (attach `.txt` file)!",
         inline=False
     )
     embed.add_field(
@@ -1662,7 +1727,8 @@ async def cmd_autogen(ctx: commands.Context, action: str = "status", cooldown: i
         embed.add_field(name="State", value="🟢 **RUNNING 24/7**" if gen_runner.autogen_enabled else "⚪ **PAUSED**", inline=True)
         embed.add_field(name="Uptime", value=uptime_str, inline=True)
         embed.add_field(name="Total Produced", value=f"`{gen_runner.autogen_total_produced:,}` accounts", inline=True)
-        embed.add_field(name="Ready Stock", value=f"`{get_file_line_count(VALID_TXT) + get_file_line_count(UNLOCKED_TXT):,}` accounts", inline=True)
+        st = stock_manager.get_stock_summary()
+        embed.add_field(name="Ready Stock", value=f"`{st['total_accounts']:,}` accounts ({st['remaining_member_capacity']:,} joins)", inline=True)
         embed.set_footer(text=f"Toggle with '{BOT_PREFIX}autogen on' or '{BOT_PREFIX}autogen off'")
         await ctx.send(embed=embed)
 

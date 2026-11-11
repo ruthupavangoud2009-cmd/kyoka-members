@@ -56,6 +56,7 @@ async def join_server_task(
         "captcha": 0,
         "invalid": 0,
         "failed": 0,
+        "successful_tokens": [],
     }
 
     async with httpx.AsyncClient(timeout=12) as client:
@@ -97,6 +98,7 @@ async def join_server_task(
 
                 if r.status_code in (200, 204):
                     results["joined"] += 1
+                    results["successful_tokens"].append(t_clean)
                     status = "joined"
                 elif r.status_code == 400:
                     d = r.json() or {}
