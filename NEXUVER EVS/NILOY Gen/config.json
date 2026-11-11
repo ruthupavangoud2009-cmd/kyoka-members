@@ -1,0 +1,67 @@
+{
+    "email_provider": {
+        "name": "afhamxmailz",
+
+        "cowmail": {
+            "api_base": "https://mail.yashlegit.shop/",
+            "api_key": "",
+            "domain": "yashlegit.shop",
+            "imap_host": "mail.yashlegit.shop",
+            "imap_port": 993
+        },
+
+        "duckmail": {
+            "api_base": "https://api.duckmail.sbs",
+            "api_key": "",
+            "password": "yogi693741@",
+            "domain": ""
+        },
+
+        "afhamxmailz": {
+            "api_base": "https://api.afhamxmailz.com",
+            "api_key": "axm_z6ae2hPmHG6eUq33lauErJqYTZeY3zRPNuDvepY4Zas",
+            "type": "discord"
+        }
+    },
+
+    "use_wasted_mails": false,
+
+    "browser": "brave",
+
+    "nopecha": {
+        "enabled": false
+    },
+
+    "ninecaptcha": {
+        "enabled": true,
+        "api_key": "9cap-8a70873a-b3e7-45b6-bbcb-5c8f63782e49",
+        "extension_id": "",
+        "extension_url": ""
+    },
+
+    "proxy": {
+        "enabled": false,
+        "file": "input/proxies.txt"
+    },
+
+    "adb": {
+        "enabled": false,
+        "device_id": "",
+        "settle_seconds": 6,
+        "verify_ip": true,
+        "max_wait": 45
+    },
+
+    "threads": 1,
+
+    "cooldown": 150,
+
+    "humanizer": {
+        "enabled": true,
+        "name": true,
+        "bio": true,
+        "pronouns": true,
+        "avatar": true,
+        "hypesquad": true
+    }
+}
